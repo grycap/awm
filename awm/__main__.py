@@ -1,20 +1,32 @@
 #!/usr/bin/env python3
-
-import connexion
-
-from awm import encoder
-
-
-def create_app():
-    app = connexion.App(__name__, specification_dir='./swagger/')
-    app.app.json_encoder = encoder.JSONEncoder
-    app.add_api('swagger.yaml', arguments={'title': 'EOSC Application Workflow Management API'}, pythonic_params=True)
-    return app
+import os
+import logging
+from dotenv import load_dotenv
+from fastapi import FastAPI
+from awm.routers import deployments
 
 
-def main():
-    create_app().run(port=8080)
+load_dotenv()
+
+LOG_LEVEL = os.getenv("LOG_LEVEL", "info")
+
+# Configurar el logger principal
+logging.basicConfig(
+    level=LOG_LEVEL.upper(),
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+
+logger = logging.getLogger(__name__)
 
 
-if __name__ == '__main__':
-    main()
+app = FastAPI(
+    title="EOSC AWM API",
+    description="EOSC Application Workflow Management API",
+    version="1.0.0"
+)
+
+app.include_router(
+    deployments.router,
+    prefix="/deployments",
+    tags=["Deployments"]
+)
