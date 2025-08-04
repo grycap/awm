@@ -2,7 +2,7 @@ import os
 import logging
 from imclient import IMClient
 from fastapi import APIRouter, Query, Depends, Request, Response
-from awm.controllers.authorization_controller import authenticate
+from awm.authorization import authenticate
 from awm.models.deployment import DeploymentInfo, DeploymentId, Deployment
 from awm.models.page import PageOfDeployments
 from awm.models.error import Error
@@ -103,8 +103,7 @@ def list_deployments(
                        description="Index of the first element to return"),
     limit: int = Query(100, alias="limit", ge=1,
                        description="Maximum number of elements to return"),
-    all_nodes: bool = Query(False, alias="all_nodes",
-                            description="If provided, will only show datasets registered by the specified organization ID."),
+    all_nodes: bool = Query(False, alias="allNodes"),
     user_info=Depends(authenticate)
 ):
     deployments = []
@@ -125,6 +124,8 @@ def list_deployments(
             deployment_info = DeploymentInfo.model_validate_json(deployment_data)
             # @TODO: Should we get the state from the IM?
             deployments.append(deployment_info)
+        res = db.select("SELECT count(id) from deployments")
+        count = res[0][0] if res else 0
         db.close()
     else:
         msg = Error(description="Database connection failed")
@@ -133,7 +134,7 @@ def list_deployments(
     base_url = str(request.base_url)[:-1] + request.url.path
     next_url = f"{base_url}?from={from_ + limit}&limit={limit}" if from_ + limit < len(deployments) else None
     previous_url = f"{base_url}?from={max(0, from_ - limit)}&limit={limit}" if from_ > 0 and len(deployments) > 0 else None
-    page = PageOfDeployments(from_=from_, limit=limit, elements=deployments, count=len(deployments),
+    page = PageOfDeployments(from_=from_, limit=limit, elements=deployments, count=count,
                              self_=str(request.url), nextPage=next_url, prevPage=previous_url)
     return page
 
@@ -168,8 +169,7 @@ def get_deployment(deployment_id,
 # GET /{deployment_id}
 @router.delete("/{deployment_id}",
                summary="Tear down an existing deployment",
-               responses={204: {"model": Success,
-                                "description": "Accepted"},
+               responses={204: {"description": "Accepted"},
                           400: {"model": Error,
                                 "description": "Invalid parameters or configuration"},
                           401: {"model": Error,
@@ -205,14 +205,13 @@ def delete_deployment(deployment_id,
         db.select("DELETE FROM deployments WHERE id = %s", (deployment_id,))
         db.close()
 
-    msg = Success(message=f"Deployment {deployment_id} deleted successfully")
-    return Response(content=msg.model_dump_json(), status_code=204, media_type="application/json")
+    return Response(status_code=204)
 
 
 # POST /
 @router.post("/",
              summary="Deploy workload to an EOSC environment or an infrastructure for which the user has credentials",
-             responses={204: {"model": DeploymentId,
+             responses={201: {"model": DeploymentId,
                               "description": "Accepted"},
                         400: {"model": Error,
                               "description": "Invalid parameters or configuration"},
