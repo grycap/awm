@@ -12,4 +12,4 @@ router = APIRouter()
             responses={200: {"model": Success,
                              "description": "Success"}})
 def version():
-    return __version__
+    return Success(message=__version__)

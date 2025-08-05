@@ -40,12 +40,12 @@ def _get_im_auth_header(token, allocation=None):
             pass
         elif allocation.get("kind") == "CredentialsOpenStack":
             auth_data += "\\n type = OpenStack; auth_version = 3.x_oidc_access_token"
-            auth_data += f"; username = {allocation.get("userName")}"
+            auth_data += f"; username = {allocation.get('userName')}"
             auth_data += f"; password = {token}"
-            auth_data += f"; tenant = {allocation.get("tenant")}"
-            auth_data += f"; host = {allocation.get("host")}"
-            auth_data += f"; domain = {allocation.get("domain")}"
-            auth_data += f"; region = {allocation.get("region")}"
+            auth_data += f"; tenant = {allocation.get('tenant')}"
+            auth_data += f"; host = {allocation.get('host')}"
+            auth_data += f"; domain = {allocation.get('domain')}"
+            auth_data += f"; region = {allocation.get('region')}"
             # @TODO: Add all the other parameters
         elif allocation.get("kind") == "CredentialsKubernetes":
             # @TODO: How the TM will get now the token?

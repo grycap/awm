@@ -19,39 +19,50 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-app = FastAPI(
-    title="EOSC AWM API",
-    description="EOSC Application Workflow Management API",
-    version="1.0.0"
-)
+def create_app():
+    app = FastAPI(
+        title="EOSC AWM API",
+        description="EOSC Application Workflow Management API",
+        version="1.0.0"
+    )
 
-app.include_router(
-    deployments.router,
-    prefix="/deployments",
-    tags=["Deployments"]
-)
+    app.include_router(
+        deployments.router,
+        prefix="/deployments",
+        tags=["Deployments"]
+    )
 
-app.include_router(
-    allocations.router,
-    prefix="/allocations",
-    tags=["Allocations"]
-)
+    app.include_router(
+        allocations.router,
+        prefix="/allocations",
+        tags=["Allocations"]
+    )
 
-app.include_router(
-    tools.router,
-    prefix="/tools",
-    tags=["Tools"]
-)
+    app.include_router(
+        tools.router,
+        prefix="/tools",
+        tags=["Tools"]
+    )
+
+    app.include_router(
+        service.router,
+        prefix="/service",
+        tags=["Service"]
+    )
+
+    app.include_router(
+        users.router,
+        prefix="/user",
+        tags=["Users"]
+    )
+
+    return app
 
 
-app.include_router(
-    service.router,
-    prefix="/service",
-    tags=["Service"]
-)
+def main():
+    import uvicorn
+    uvicorn.run(create_app(), host="127.0.0.1", port=8080)
 
-app.include_router(
-    users.router,
-    prefix="/user",
-    tags=["Users"]
-)
+
+if __name__ == '__main__':
+    main()
