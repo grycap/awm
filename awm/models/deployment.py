@@ -7,7 +7,7 @@ from awm.models.tool import Tool
 
 class DeploymentId(BaseModel):
     id: str = Field(..., description="Unique identifier for this deployment")
-    kind: Literal["DeploymentId"]
+    kind: Literal["DeploymentId"] = "DeploymentId"
     self_: HttpUrl | None = Field(None, alias="self", description="Endpoint that returns more details about this entity")
 
     class Config:

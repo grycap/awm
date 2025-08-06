@@ -46,7 +46,7 @@ def create_app():
 
     app.include_router(
         service.router,
-        prefix="/service",
+        prefix="/version",
         tags=["Service"]
     )
 

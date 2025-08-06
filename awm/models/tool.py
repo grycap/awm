@@ -4,16 +4,17 @@ from datetime import datetime
 
 
 class ToolId(BaseModel):
-    kind: str = 'ToolId'
+    kind: Literal['ToolId'] = 'ToolId'
     id: str = Field(..., description="Unique identifier for this tool blueprint")
     infoLink: str | None = Field(None, description="URL that returns the full details of this tool blueprint")
 
 
 class ToolInfo(BaseModel):
+    kind: Literal['ToolInfo'] = 'ToolInfo'
     type: Literal["vm", "container"]
     blueprint: str = Field(..., description="Blueprint of the tool's workload")
     blueprint_type: Literal["tosca", "ansible", "helm"]
-    name: str
+    name: str = None
     description: str = None
     author_name: str = None
     author_email: EmailStr = None

@@ -7,8 +7,8 @@ from awm.models.error import Error
 router = APIRouter()
 
 
-# GET /
-@router.get("/",
+# GET /info
+@router.get("/info",
             summary="Retrieve information about the user",
             responses={200: {"model": UserInfo,
                              "description": "Success"},

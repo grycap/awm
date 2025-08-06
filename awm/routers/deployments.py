@@ -6,8 +6,8 @@ from awm.authorization import authenticate
 from awm.models.deployment import DeploymentInfo, DeploymentId, Deployment
 from awm.models.page import PageOfDeployments
 from awm.models.error import Error
-from awm.models.success import Success
 from awm.db import DataBase
+from awm.routers.tools import get_tool_from_tm
 
 
 router = APIRouter()
@@ -27,7 +27,6 @@ def _init_table(db):
         elif db.db_type == DataBase.MONGO:
             db.connection.create_collection("deployments")
             db.connection["deployments"].create_index([("id", 1)], unique=True)
-        db.close()
         return True
     return False
 
@@ -35,10 +34,10 @@ def _init_table(db):
 def _get_im_auth_header(token, allocation=None):
     auth_data = f"type = InfrastructureManager; token = {token}"
     if allocation:
-        if allocation.get("kind") == "EoscNodeAllocation":
+        if allocation.kind == "EoscNodeAllocation":
             # @TODO: Implement deployment to EOSC
             pass
-        elif allocation.get("kind") == "CredentialsOpenStack":
+        elif allocation.kind == "CredentialsOpenStack":
             auth_data += "\\n type = OpenStack; auth_version = 3.x_oidc_access_token"
             auth_data += f"; username = {allocation.get('userName')}"
             auth_data += f"; password = {token}"
@@ -47,7 +46,7 @@ def _get_im_auth_header(token, allocation=None):
             auth_data += f"; domain = {allocation.get('domain')}"
             auth_data += f"; region = {allocation.get('region')}"
             # @TODO: Add all the other parameters
-        elif allocation.get("kind") == "CredentialsKubernetes":
+        elif allocation.kind == "CredentialsKubernetes":
             # @TODO: How the TM will get now the token?
             auth_data += f"\\n type = Kubernetes; token = {token}"
         else:
@@ -202,6 +201,7 @@ def delete_deployment(deployment_id,
 
     db = DataBase(DB_URL)
     if db.connect():
+        _init_table(db)
         db.select("DELETE FROM deployments WHERE id = %s", (deployment_id,))
         db.close()
 
@@ -238,16 +238,23 @@ def deploy_workload(deployment: Deployment,
 
     # Create the infrastructure in the IM
     client = IMClient.init_client(IM_URL, auth_data)
-    success, deployment_id = client.create(deployment.tool.blueprint, "yaml", True)
+    if deployment.tool.kind == "ToolId":
+        tool, status_code = get_tool_from_tm(deployment.tool.id, user_info['token'])
+        if status_code != 200:
+            return Response(content=tool, status_code=400, media_type="application/json")
+    else:
+        tool = deployment.tool
+
+    success, deployment_id = client.create(tool.blueprint, "yaml", True)
     if not success:
         msg = Error(description=deployment_id)
         return msg.to_dict(), 400
 
     db = DataBase(DB_URL)
     if db.connect():
+        _init_table(db)
         deployment = DeploymentInfo(id=deployment_id,
-                                    allocation=deployment.allocation,
-                                    tool=deployment.tool,
+                                    deployment=deployment,
                                     status="pending",
                                     self_=f"{request.url}/{deployment_id}")
         data = deployment.model_dump_json()
@@ -261,4 +268,4 @@ def deploy_workload(deployment: Deployment,
         return Response(content=msg.model_dump_json(), status_code=503, media_type="application/json")
 
     dep_id = DeploymentId(id=deployment_id, kind="DeploymentId", self_=deployment.self_)
-    return Response(content=dep_id.model_dump_json(), status_code=204, media_type="application/json")
+    return Response(content=dep_id.model_dump_json(), status_code=201, media_type="application/json")

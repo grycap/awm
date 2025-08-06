@@ -66,6 +66,36 @@ def list_tools(
     return page
 
 
+def get_tool_from_tm(tool_id, token, self_link=None):
+    tool_id = tool_id.replace("_", "%2F")
+    response = requests.get(TOOLS_MARKET_URL + "/tools/api/v1/by-pid/%s" % tool_id,
+                            headers={"Authorization": "Bearer %s" % token},
+                            timeout=10)
+    if response.status_code == 404:
+        msg = Error(description="Tool not found")
+        return msg.model_dump_json(), 404
+    elif response.status_code != 200:
+        logger.error("Failed to fetch tool from tools market: %s", response.text)
+        msg = Error(description="Failed to fetch tool from tools market")
+        return msg.model_dump_json(), 404
+
+    tool_info = response.json()
+    if tool_info.get("pid") is None:
+        msg = Error(description="Tool not found")
+        return msg.model_dump_json(), 404
+
+    tool = ToolInfo(id=tool_id,
+                    self_=self_link,
+                    name=tool_info.get("name"),
+                    description=tool_info.get("description"),
+                    blueprint=tool_info.get("toscaFile"),
+                    blueprint_type="tosca",
+                    type="vm"  # @TODO: Determine type based on tool_info
+                    )
+
+    return tool, 200
+
+
 # GET /{tool_id}
 @router.get("/{tool_id}",
             summary="Get information about a tool blueprint",
@@ -90,31 +120,8 @@ def get_tool(tool_id: str,
 
     :rtype: ToolInfo
     """
-    tool_id = tool_id.replace("_", "%2F")
-    response = requests.get(TOOLS_MARKET_URL + "/tools/api/v1/by-pid/%s" % tool_id,
-                            headers={"Authorization": "Bearer %s" % user_info['token']},
-                            timeout=10)
-    if response.status_code == 404:
-        msg = Error(description="Tool not found")
-        return Response(content=msg.model_dump_json(), status_code=404, media_type="application/json")
-    elif response.status_code != 200:
-        logger.error("Failed to fetch tools from market: %s", response.text)
-        msg = Error(description="Failed to fetch tools from market")
-        return Response(content=msg.model_dump_json(), status_code=503, media_type="application/json")
-
-    tool_info = response.json()
-
-    if tool_info.get("pid") is None:
-        msg = Error(description="Tool not found")
-        return Response(content=msg.model_dump_json(), status_code=404, media_type="application/json")
-
-    tool = ToolInfo(id=tool_id,
-                    self_=str(request.url),
-                    name=tool_info.get("name"),
-                    description=tool_info.get("description"),
-                    blueprint=tool_info.get("toscaFile"),
-                    blueprint_type="tosca",
-                    type="vm"  # @TODO: Determine type based on tool_info
-                    )
+    tool, status_code = get_tool_from_tm(tool_id, user_info['token'], str(request.url))
+    if status_code != 200:
+        return Response(content=tool, status_code=status_code, media_type="application/json")
 
     return tool
