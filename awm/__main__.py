@@ -2,11 +2,8 @@
 from fastapi import FastAPI
 from awm.routers import deployments, allocations, tools, service
 
-import warnings
-warnings.filterwarnings("always", category=DeprecationWarning)
 
 def create_app():
-    
     app = FastAPI(
         title="EOSC AWM API",
         description="EOSC Application Workflow Management API",
