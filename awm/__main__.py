@@ -1,25 +1,12 @@
 #!/usr/bin/env python3
-import os
-import logging
-from dotenv import load_dotenv
 from fastapi import FastAPI
 from awm.routers import deployments, allocations, tools, service
 
-
-load_dotenv()
-
-LOG_LEVEL = os.getenv("LOG_LEVEL", "info")
-
-# Configurar el logger principal
-logging.basicConfig(
-    level=LOG_LEVEL.upper(),
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
-
-logger = logging.getLogger(__name__)
-
+import warnings
+warnings.filterwarnings("always", category=DeprecationWarning)
 
 def create_app():
+    
     app = FastAPI(
         title="EOSC AWM API",
         description="EOSC Application Workflow Management API",
@@ -46,12 +33,6 @@ def create_app():
         service.router,
         tags=["Service"]
     )
-
-#    app.include_router(
-#        users.router,
-#        prefix="/user",
-#        tags=["Users"]
-#    )
 
     return app
 

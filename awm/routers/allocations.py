@@ -1,7 +1,7 @@
 import os
-import logging
 import uuid
 import time
+import awm
 from fastapi import APIRouter, Query, Depends, Request, Response
 from awm.authorization import authenticate
 from awm.models.allocation import AllocationInfo, Allocation, AllocationId
@@ -10,19 +10,17 @@ from awm.models.error import Error
 from awm.models.success import Success
 from awm.utils.db import DataBase
 from awm.utils.node_registry import EOSCNodeRegistry
-import awm
 from . import return_error
 
 
 router = APIRouter()
 DB_URL = os.getenv("DB_URL", "file:///tmp/awm.db")
-logger = logging.getLogger(__name__)
 
 
 def _init_table(db: DataBase) -> bool:
     """Creates de database."""
     if not db.table_exists("allocations"):
-        logger.info("Creating allocations table")
+        awm.logger.info("Creating allocations table")
         if db.db_type == DataBase.MYSQL:
             db.execute("CREATE TABLE allocations (id VARCHAR(255) PRIMARY KEY, data TEXT, "
                        "owner VARCHAR(255), created TIMESTAMP)")
@@ -140,7 +138,7 @@ def _get_allocation(allocation_id: str, user_info: dict, request: Request) -> Al
                 allocation=allocation
             )
     else:
-        logger.error("Database connection failed")
+        awm.logger.error("Database connection failed")
         return None
 
     return allocation_info

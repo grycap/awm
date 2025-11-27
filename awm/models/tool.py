@@ -35,8 +35,7 @@ class ToolInfo(BaseModel):
     validatedOn: datetime = None
     self_: HttpUrl | None = Field(None, alias="self", description="Endpoint that returns the details of this tool blueprint")
 
-    class Config:
-        populate_by_name = True
+    model_config = {"populate_by_name": True}
 
 
 Tool = Union[ToolId, ToolInfo]

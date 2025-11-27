@@ -15,8 +15,7 @@ class Page(BaseModel):
     prevPage: HttpUrl | None = Field(None, description="Endpoint that returns the previous page")
     nextPage: HttpUrl | None = Field(None, description="Endpoint that returns the next page")
 
-    class Config:
-        populate_by_name = True
+    model_config = {"populate_by_name": True}
 
     def set_next_and_prev_pages(self, request: Request, all_nodes: bool):
         base_url = request.url.scheme + "://" + request.url.hostname + request.url.path

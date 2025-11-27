@@ -135,7 +135,7 @@ def test_deploy_workload(
 
     response = client.post("/deployments",
                            headers={"Authorization": "Bearer token"},
-                           data=payload)
+                           content=payload)
 
     assert response.status_code == 202
     assert response.json()["id"] == "new_dep_id"

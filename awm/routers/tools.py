@@ -1,7 +1,7 @@
 import base64
 import os
 import yaml
-import logging
+import awm
 from typing import Tuple, Union
 from fastapi import APIRouter, Query, Depends, Request, Response
 from awm.authorization import authenticate
@@ -15,7 +15,6 @@ from . import return_error
 
 AWM_TOOLS_REPO = os.getenv("DB_URL", "https://github.com/grycap/tosca/blob/eosc_lot1/templates/")
 router = APIRouter()
-logger = logging.getLogger(__name__)
 
 
 def _get_tool_type(tosca: dict) -> str:
@@ -25,7 +24,7 @@ def _get_tool_type(tosca: dict) -> str:
             if node.get('type', '') == 'tosca.nodes.Container.Application.Docker':
                 return "container"
     except Exception:
-        logger.exception("Error getting tool type using default 'vm'")
+        awm.logger.exception("Error getting tool type using default 'vm'")
     return "vm"
 
 
@@ -63,7 +62,7 @@ def get_tool_from_repo(tool_id: str, version: str, request: Request) -> Tuple[Un
         else:
             response = repo.get_by_path(repo_tool_id, True)
     except Exception as e:
-        logger.error("Failed to get tool info: %s", e)
+        awm.logger.error("Failed to get tool info: %s", e)
         msg = Error(id="503", description="Failed to get tool info")
         return msg, 503
 
@@ -71,7 +70,7 @@ def get_tool_from_repo(tool_id: str, version: str, request: Request) -> Tuple[Un
         msg = Error(id="404", description="Tool not found")
         return msg, 404
     if response.status_code != 200:
-        logger.error("Failed to fetch tool: %s", response.text)
+        awm.logger.error("Failed to fetch tool: %s", response.text)
         msg = Error(id="503", description="Failed to fetch tool")
         return msg, 503
 
@@ -113,7 +112,7 @@ def list_tools(
         repo = Repository.create(AWM_TOOLS_REPO)
         tools_list = repo.list()
     except Exception as e:
-        logger.error("Failed to get list of Tools: %s", e)
+        awm.logger.error("Failed to get list of Tools: %s", e)
         return return_error("503", "Failed to get list of Tools")
 
     count = 0
@@ -127,7 +126,7 @@ def list_tools(
             if len(tools) >= limit:
                 break
         except Exception as ex:
-            logger.error("Failed to get tool info: %s", ex)
+            awm.logger.error("Failed to get tool info: %s", ex)
 
     remote_count = 0
     if all_nodes:

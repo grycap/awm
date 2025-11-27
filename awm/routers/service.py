@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Response
 from awm.models.success import Success
 from awm import __version__
 
@@ -12,4 +12,5 @@ router = APIRouter()
             responses={200: {"model": Success,
                              "description": "Success"}})
 def version():
-    return Success(message=__version__)
+    return Response(content=Success(message=__version__).model_dump_json(),
+                    media_type="application/json")

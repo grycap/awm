@@ -10,8 +10,7 @@ class DeploymentId(BaseModel):
     kind: Literal["DeploymentId"] = "DeploymentId"
     infoLink: HttpUrl | None = Field(None, description="Endpoint that returns more details about this entity")
 
-    class Config:
-        populate_by_name = True
+    model_config = {"populate_by_name": True}
 
 
 class Deployment(BaseModel):
@@ -33,5 +32,4 @@ class DeploymentInfo(BaseModel):
                     "deleting"]
     self_: HttpUrl | None = Field(None, alias="self", description="Endpoint that returns the details of this tool blueprint")
 
-    class Config:
-        populate_by_name = True
+    model_config = {"populate_by_name": True}

@@ -1,6 +1,6 @@
 import os
-import logging
 import time
+import awm
 from imclient import IMClient
 from fastapi import APIRouter, Query, Depends, Request, Response
 from awm.authorization import authenticate
@@ -12,20 +12,19 @@ from awm.models.allocation import AllocationUnion
 from awm.utils.node_registry import EOSCNodeRegistry
 from typing import Tuple, Union
 from awm.utils.db import DataBase
-import awm
+
 from . import return_error
 
 
 router = APIRouter()
 IM_URL = os.getenv("IM_URL", "http://localhost:8080")
 DB_URL = os.getenv("DB_URL", "file:///tmp/awm.db")
-logger = logging.getLogger(__name__)
 
 
 def _init_table(db: DataBase) -> bool:
     """Creates de database."""
     if not db.table_exists("deployments"):
-        logger.info("Creating deployments table")
+        awm.logger.info("Creating deployments table")
         if db.db_type == DataBase.MYSQL:
             db.execute("CREATE TABLE deployments (id VARCHAR(255) PRIMARY KEY, data TEXT"
                        ", owner VARCHAR(255), created TIMESTAMP)")
@@ -86,7 +85,7 @@ def _get_deployment(deployment_id: str, user_info: dict, request: Request,
             try:
                 dep_info = DeploymentInfo.model_validate_json(deployment_data)
             except Exception as ex:
-                logger.error(f"Failed to parse deployment info from database: {str(ex)}")
+                awm.logger.error(f"Failed to parse deployment info from database: {str(ex)}")
                 msg = Error(id="500", description="Internal server error: corrupted deployment data")
                 return msg, 500
 
@@ -135,7 +134,7 @@ def _list_deployments(from_: int = 0, limit: int = 100,
                 try:
                     deployment_info = DeploymentInfo.model_validate_json(deployment_data)
                 except Exception as ex:
-                    logger.error("Failed to parse deployment info from database: %s", str(ex))
+                    awm.logger.error("Failed to parse deployment info from database: %s", str(ex))
                     continue
                 deployments.append(deployment_info)
                 if len(deployments) >= limit:
@@ -149,7 +148,7 @@ def _list_deployments(from_: int = 0, limit: int = 100,
                 try:
                     deployment_info = DeploymentInfo.model_validate_json(deployment_data)
                 except Exception as ex:
-                    logger.error("Failed to parse deployment info from database: %s", str(ex))
+                    awm.logger.error("Failed to parse deployment info from database: %s", str(ex))
                     continue
                 deployments.append(deployment_info)
             res = db.select("SELECT count(id) from deployments WHERE owner = %s", (user_info['sub'],))

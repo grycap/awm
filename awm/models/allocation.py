@@ -71,5 +71,4 @@ class AllocationInfo(BaseModel):
     self_: HttpUrl | None = Field(None, alias="self", description="Endpoint that returns the details of this allocation")
     allocation: Allocation
 
-    class Config:
-        populate_by_name = True
+    model_config = {"populate_by_name": True}
