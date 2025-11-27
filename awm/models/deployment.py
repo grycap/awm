@@ -10,8 +10,6 @@ class DeploymentId(BaseModel):
     kind: Literal["DeploymentId"] = "DeploymentId"
     infoLink: HttpUrl | None = Field(None, description="Endpoint that returns more details about this entity")
 
-    model_config = {"populate_by_name": True}
-
 
 class Deployment(BaseModel):
     allocation: AllocationId
