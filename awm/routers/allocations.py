@@ -183,7 +183,7 @@ def _check_allocation_in_use(allocation_id: str, user_info: dict, request: Reque
     if response.status_code != 200:
         return response
 
-    for dep_info in response.json.get("elements"):
+    for dep_info in response.json().get("elements"):
         if dep_info.get('deployment', {}).get('allocation', {}).get('id') == allocation_id:
             return return_error("Allocation in use", 409)
 
@@ -295,14 +295,13 @@ def _create_allocation(allocation: Allocation,
                            "owner": user_info['sub']}
             db.replace("allocations", {"id": allocation_id}, replace)
         else:
-            sql = "replace into allocations (id, data, owner"
             if allocation_id is None:  # new allocation
                 allocation_id = str(uuid.uuid4())
-                sql += ", created) values (%s, %s, %s, %s)"
+                sql = "replace into allocations (id, data ,owner, created) values (%s, %s, %s, %s)"
                 values = (allocation_id, data, user_info['sub'], time.time())
             else:  # update existing allocation
-                sql += ") values (%s, %s, %s)"
-                values = (allocation_id, data, user_info['sub'])
+                sql = "update allocations set data = %s where id = %s"
+                values = (data, allocation_id)
             db.execute(sql, values)
         db.close()
         return allocation_id

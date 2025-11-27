@@ -14,7 +14,8 @@ def client():
 
 @pytest.fixture
 def headers():
-    return {"Authorization": "Bearer you-very-secret-token"}
+    return {"Authorization": "Bearer you-very-secret-token",
+            "Content-Type": "application/json"}
 
 
 @pytest.fixture
@@ -179,7 +180,7 @@ def test_delete_allocation(check_oidc_mock, list_deployments_mock, db_mock, clie
     db_mock.select.side_effect = selects
 
     list_deployments_mock.return_value.status_code = 200
-    list_deployments_mock.return_value.json = {"from": 0, "limit": 100, "count": 0, "self": "", "elements": []}
+    list_deployments_mock.return_value.json.return_value = {"from": 0, "limit": 100, "count": 0, "self": "", "elements": []}
 
     headers = {"Authorization": "Bearer you-very-secret-token"}
     response = client.delete('/allocation/id1', headers=headers)
@@ -188,33 +189,32 @@ def test_delete_allocation(check_oidc_mock, list_deployments_mock, db_mock, clie
     db_mock.execute.assert_called_with("DELETE FROM allocations WHERE id = %s", ('id1',))
 
     list_deployments_mock.return_value.status_code = 200
-    list_deployments_mock.return_value.json = {"from": 0, "limit": 100, "count": 0, "self": "",
-                                               "elements": [
-                                                {
-                                                    "deployment": {
-                                                        "allocation": {
-                                                            "kind": "AllocationId",
-                                                            "id": "id1",
-                                                            "infoLink": "http://some.url/"
-                                                        },
-                                                        "tool": {
-                                                            "kind": "ToolId",
-                                                            "id": "toolid",
-                                                            "version": "latest",
-                                                            "infoLink": "http://some.url/"
-                                                        },
-                                                    },
-                                                    "id": "dep_id",
-                                                    "status": "pending",
-                                                }
-                                                ]}
+    list_deployments_mock.return_value.json.return_value = {
+        "from": 0, "limit": 100, "count": 0, "self": "",
+        "elements": [{
+            "deployment": {
+                "allocation": {
+                    "kind": "AllocationId",
+                    "id": "id1",
+                    "infoLink": "http://some.url/"
+                },
+                "tool": {
+                    "kind": "ToolId",
+                    "id": "toolid",
+                    "version": "latest",
+                    "infoLink": "http://some.url/"
+                },
+            },
+            "id": "dep_id",
+            "status": "pending",
+        }
+        ]}
     response = client.delete('/allocation/id1', headers=headers)
     assert response.status_code == 409
     assert response.json() == {'description': 'Allocation in use', 'id': '409'}
 
 
 def test_create_allocation(check_oidc_mock, time_mock, uuid_mock, db_mock, client, headers):
-    """Test AWM create allocation endpoint."""
     headers = {
         "Authorization": "Bearer you-very-secret-token",
         "Content-Type": "application/json"
@@ -229,4 +229,30 @@ def test_create_allocation(check_oidc_mock, time_mock, uuid_mock, db_mock, clien
     db_mock.execute.assert_called_with(
         "replace into allocations (id, data, owner, created) values (%s, %s, %s, %s)",
         ('new-id', '{"kind":"KubernetesEnvironment","host":"http://k8s.io/"}', 'user123', 1000)
+    )
+
+
+def test_update_allocation(check_oidc_mock, list_deployments_mock, db_mock, client, headers):
+    selects = [
+        [['id1', '{"kind": "KubernetesEnvironment","host": "http://k8s.io"}']],
+        [['id1', '{"kind": "KubernetesEnvironment","host": "http://k8s.io"}']]
+    ]
+    db_mock.select.side_effect = selects
+
+    list_deployments_mock.return_value.status_code = 200
+    list_deployments_mock.return_value.json.return_value = {"from": 0, "limit": 100, "count": 0, "self": "", "elements": []}
+
+    payload = {
+        "kind": "KubernetesEnvironment",
+        "host": "http://k8s.io"
+    }
+    response = client.put('/allocation/id1', headers=headers, json=payload)
+    assert response.status_code == 200
+    assert response.json() == {'id': 'id1',
+                               'allocation': {'host': 'http://k8s.io/', 
+                                              'kind': 'KubernetesEnvironment'}, 
+                               'self': 'http://testserver/allocation/id1'}
+    db_mock.execute.assert_called_with(
+        "update allocations set data = %s where id = %s",
+        ('{"kind":"KubernetesEnvironment","host":"http://k8s.io/"}', 'id1')
     )

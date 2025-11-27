@@ -23,7 +23,8 @@ def create_app():
     app = FastAPI(
         title="EOSC AWM API",
         description="EOSC Application Workflow Management API",
-        version="1.0.0"
+        version="1.0.0",
+        docs_url="/",
     )
 
     app.include_router(
@@ -58,6 +59,9 @@ def create_app():
 def main():
     import uvicorn
     uvicorn.run(create_app(), host="127.0.0.1", port=8080)
+
+
+app = create_app()
 
 
 if __name__ == '__main__':
