@@ -1,20 +1,89 @@
+import base64
 import os
+import yaml
 import logging
-import requests
+from typing import Tuple, Union
 from fastapi import APIRouter, Query, Depends, Request, Response
 from awm.authorization import authenticate
 from awm.models.tool import ToolInfo
 from awm.models.page import PageOfTools
 from awm.models.error import Error
+from awm.utils.node_registry import EOSCNodeRegistry
+from awm.utils.repository import Repository
 
 
+AWM_TOOLS_REPO = os.getenv("DB_URL", "https://github.com/grycap/tosca/blob/eosc_lot1/templates/")
 router = APIRouter()
-TOOLS_MARKET_URL = os.getenv("TOOLS_MARKET_URL", "https://api.eosc.athenarc.gr")
 logger = logging.getLogger(__name__)
 
 
-# GET /
-@router.get("/",
+def _get_tool_type(tosca: dict) -> str:
+    try:
+        node_templates = tosca.get('topology_template', {}).get('node_templates', {})
+        for _, node in node_templates.items():
+            if node.get('type', '') == 'tosca.nodes.Container.Application.Docker':
+                return "container"
+    except Exception:
+        logger.exception("Error getting tool type using default 'vm'")
+    return "vm"
+
+
+def _get_tool_info_from_repo(elem: str, path: str, version: str, request: Request) -> ToolInfo:
+    tosca = yaml.safe_load(elem)
+    metadata = tosca.get("metadata", {})
+    tool_id = path.replace("/", "_")
+    url = str(request.url_for("get_tool", tool_id=tool_id))
+    if version and version != "latest":
+        url += "?version=%s" % version
+    tool = ToolInfo(
+        id=tool_id,
+        self_=url,
+        version='latest',
+        type=_get_tool_type(tosca),
+        name=metadata.get("template_name", ""),
+        description=tosca.get("description", ""),
+        blueprint=elem,
+        blueprintType="tosca"
+    )
+    if metadata.get("template_author"):
+        tool.authorName = metadata.get("template_author")
+    if version:
+        tool.version = version
+    return tool
+
+
+def get_tool_from_repo(tool_id: str, version: str, request: Request) -> Tuple[Union[ToolInfo, Error], int]:
+    # tool_id was provided with underscores; convert back path
+    repo_tool_id = tool_id.replace("_", "/")
+    try:
+        repo = Repository.create(AWM_TOOLS_REPO)
+        if version:
+            response = repo.get_by_sha(version)
+        else:
+            response = repo.get_by_path(repo_tool_id, True)
+    except Exception as e:
+        logger.error("Failed to get tool info: %s", e)
+        msg = Error(id="503", description="Failed to get tool info")
+        return msg, 503
+
+    if response.status_code == 404:
+        msg = Error(id="404", description="Tool not found")
+        return msg, 404
+    if response.status_code != 200:
+        logger.error("Failed to fetch tool: %s", response.text)
+        msg = Error(id="503", description="Failed to fetch tool")
+        return msg, 503
+
+    template = base64.b64decode(response.json().get("content").encode()).decode()
+    if not version or version == "latest":
+        version = response.json().get("sha")
+
+    tool = _get_tool_info_from_repo(template, repo_tool_id, version, request)
+    return tool, 200
+
+
+# GET /tools
+@router.get("/tools",
             summary="List all tool blueprints",
             responses={200: {"model": PageOfTools,
                              "description": "Success"},
@@ -38,66 +107,41 @@ def list_tools(
     user_info=Depends(authenticate)
 ):
 
-    response = requests.get(TOOLS_MARKET_URL + "/tools/api/v1?pageSize=%s&from=%s" % (limit, from_),
-                            headers={"Authorization": "Bearer %s" % user_info['token']},
-                            timeout=10)
-    if response.status_code != 200:
-        logger.error("Failed to fetch tools from market: %s", response.text)
-        msg = Error(description="Failed to fetch tools from market")
-        return Response(content=msg.model_dump_json(), status_code=503, media_type="application/json")
-
-    tools_info = response.json()
-
     tools = []
-    for tool_info in tools_info.get("content"):
-        pid = tool_info.get("pid").replace("/", "_")
-        url = f"{request.base_url}{request.url.path[1:]}{pid}"
-        tool = ToolInfo(id=pid,
-                        self_=url,
-                        type="vm",  # @TODO: Determine type based on tool_info
-                        name=tool_info.get("name"),
-                        description=tool_info.get("description"),
-                        blueprint=tool_info.get("toscaFile"),
-                        blueprint_type="tosca",
-                        author_name=tool_info.get("author"),)
-        tools.append(tool)
+    try:
+        repo = Repository.create(AWM_TOOLS_REPO)
+        tools_list = repo.list()
+    except Exception as e:
+        logger.error("Failed to get list of Tools: %s", e)
+        msg = Error(description="Failed to get list of Tools")
+        return Response(msg.model_dump_json(exclude_unset=True), 503, mimetype="application/json")
 
-    page = PageOfTools(from_=from_, limit=limit, elements=tools, count=tools_info.get("totalElements"))
-    return page
+    count = 0
+    for _, elem in tools_list.items():
+        count += 1
+        if from_ > count - 1:
+            continue
+        try:
+            tool = _get_tool_info_from_repo(repo.get(elem), elem['path'], elem['sha'], request)
+            tools.append(tool)
+            if len(tools) >= limit:
+                break
+        except Exception as ex:
+            logger.error("Failed to get tool info: %s", ex)
 
+    remote_count = 0
+    if all_nodes:
+        remote_count, remote_tools = EOSCNodeRegistry.list_tools(from_, limit, count, user_info)
+        tools.extend(remote_tools)
 
-def get_tool_from_tm(tool_id, token, self_link=None):
-    tool_id = tool_id.replace("_", "%2F")
-    response = requests.get(TOOLS_MARKET_URL + "/tools/api/v1/by-pid/%s" % tool_id,
-                            headers={"Authorization": "Bearer %s" % token},
-                            timeout=10)
-    if response.status_code == 404:
-        msg = Error(description="Tool not found")
-        return msg.model_dump_json(), 404
-    elif response.status_code != 200:
-        logger.error("Failed to fetch tool from tools market: %s", response.text)
-        msg = Error(description="Failed to fetch tool from tools market")
-        return msg.model_dump_json(), 404
-
-    tool_info = response.json()
-    if tool_info.get("pid") is None:
-        msg = Error(description="Tool not found")
-        return msg.model_dump_json(), 404
-
-    tool = ToolInfo(id=tool_id,
-                    self_=self_link,
-                    name=tool_info.get("name"),
-                    description=tool_info.get("description"),
-                    blueprint=tool_info.get("toscaFile"),
-                    blueprint_type="tosca",
-                    type="vm"  # @TODO: Determine type based on tool_info
-                    )
-
-    return tool, 200
+    page = PageOfTools(from_=from_, limit=limit, elements=tools, count=len(tools_list) + remote_count)
+    page.set_next_and_prev_pages(request, all_nodes)
+    return Response(content=page.model_dump_json(exclude_unset=True, by_alias=True), status_code=200,
+                    media_type="application/json")
 
 
-# GET /{tool_id}
-@router.get("/{tool_id}",
+# GET /tool/{tool_id}
+@router.get("/tool/{tool_id}",
             summary="Get information about a tool blueprint",
             responses={200: {"model": ToolInfo,
                              "description": "Accepted"},
@@ -115,13 +159,13 @@ def get_tool_from_tm(tool_id, token, self_link=None):
                              "description": "Try again later"}})
 def get_tool(tool_id: str,
              request: Request,
+             version: str = Query("latest", description="If missing, the latest version will be returned"),
              user_info=Depends(authenticate)):
     """Get information about an existing tool blueprint
 
     :rtype: ToolInfo
     """
-    tool, status_code = get_tool_from_tm(tool_id, user_info['token'], str(request.url))
-    if status_code != 200:
-        return Response(content=tool, status_code=status_code, media_type="application/json")
+    tool_or_msg, status_code = get_tool_from_repo(tool_id, version, request)
 
-    return tool
+    return Response(content=tool_or_msg.model_dump_json(exclude_unset=True, by_alias=True),
+                    status_code=status_code, media_type="application/json")

@@ -6,8 +6,8 @@ from awm import __version__
 router = APIRouter()
 
 
-# GET /
-@router.get("/",
+# GET /version
+@router.get("/version",
             summary="Return service version information",
             responses={200: {"model": Success,
                              "description": "Success"}})

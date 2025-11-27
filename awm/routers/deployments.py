@@ -1,13 +1,19 @@
 import os
 import logging
+import time
 from imclient import IMClient
 from fastapi import APIRouter, Query, Depends, Request, Response
 from awm.authorization import authenticate
 from awm.models.deployment import DeploymentInfo, DeploymentId, Deployment
 from awm.models.page import PageOfDeployments
 from awm.models.error import Error
-from awm.db import DataBase
-from awm.routers.tools import get_tool_from_tm
+from awm.models.success import Success
+from awm.models.allocation import AllocationUnion
+from awm.utils.node_registry import EOSCNodeRegistry
+from typing import Tuple, Union
+from awm.utils.db import DataBase
+import awm
+from . import return_error
 
 
 router = APIRouter()
@@ -16,73 +22,104 @@ DB_URL = os.getenv("DB_URL", "file:///tmp/awm.db")
 logger = logging.getLogger(__name__)
 
 
-def _init_table(db):
-    """ Creates de database """
+def _init_table(db: DataBase) -> bool:
+    """Creates de database."""
     if not db.table_exists("deployments"):
         logger.info("Creating deployments table")
         if db.db_type == DataBase.MYSQL:
-            db.execute("CREATE TABLE deployments (id VARCHAR(255) PRIMARY KEY, data TEXT)")
+            db.execute("CREATE TABLE deployments (id VARCHAR(255) PRIMARY KEY, data TEXT"
+                       ", owner VARCHAR(255), created TIMESTAMP)")
         elif db.db_type == DataBase.SQLITE:
-            db.execute("CREATE TABLE deployments (id TEXT PRIMARY KEY, data TEXT)")
+            db.execute("CREATE TABLE deployments (id TEXT PRIMARY KEY, data TEXT"
+                       ", owner VARCHAR(255), created TIMESTAMP)")
         elif db.db_type == DataBase.MONGO:
             db.connection.create_collection("deployments")
-            db.connection["deployments"].create_index([("id", 1)], unique=True)
+            db.connection["deployments"].create_index([("id", 1), ("owner", 1)], unique=True)
         return True
     return False
 
 
-def _get_im_auth_header(token, allocation=None):
-    auth_data = f"type = InfrastructureManager; token = {token}"
+def _get_im_auth_header(token: str, allocation: AllocationUnion = None) -> dict:
+    auth_data = [{"type": "InfrastructureManager", "token": token}]
     if allocation:
-        if allocation.kind == "EoscNodeAllocation":
+        if allocation.kind == "EoscNodeEnvironment":
             # @TODO: Implement deployment to EOSC
             pass
-        elif allocation.kind == "CredentialsOpenStack":
-            auth_data += "\\n type = OpenStack; auth_version = 3.x_oidc_access_token"
-            auth_data += f"; username = {allocation.get('userName')}"
-            auth_data += f"; password = {token}"
-            auth_data += f"; tenant = {allocation.get('tenant')}"
-            auth_data += f"; host = {allocation.get('host')}"
-            auth_data += f"; domain = {allocation.get('domain')}"
-            auth_data += f"; region = {allocation.get('region')}"
+        elif allocation.kind == "OpenStackEnvironment":
+            ost_auth_data = {"id": "ost", "type": "OpenStack", "auth_version": "3.x_oidc_access_token"}
+            ost_auth_data["username"] = allocation.userName
+            ost_auth_data["password"] = token
+            ost_auth_data["tenant"] = allocation.tenant
+            ost_auth_data["host"] = str(allocation.host)
+            ost_auth_data["domain"] = allocation.domain
+            if allocation.region:
+                ost_auth_data["region"] = allocation.region
             # @TODO: Add all the other parameters
-        elif allocation.kind == "CredentialsKubernetes":
-            # @TODO: How the TM will get now the token?
-            auth_data += f"\\n type = Kubernetes; token = {token}"
+            auth_data.append(ost_auth_data)
+        elif allocation.kind == "KubernetesEnvironment":
+            k8s_auth_data = {"type": "kubernetes", "token": token}
+            k8s_auth_data["host"] = str(allocation.host)
+            k8s_auth_data["password"] = token
         else:
             raise ValueError("Allocation kind not supported")
     return auth_data
 
 
-def _get_deployment(deployment_id, user_token):
-    deployment = None
+def _get_deployment(deployment_id: str, user_info: dict, request: Request,
+                    get_state: bool = True) -> Tuple[Union[Error, Deployment], int]:
+    dep_info = None
+    user_token = user_info['token']
+    user_id = user_info['sub']
     db = DataBase(DB_URL)
     if db.connect():
         _init_table(db)
-        res = db.select("SELECT id, data FROM deployments WHERE id = %s", (deployment_id,))
+        if db.db_type == DataBase.MONGO:
+            res = db.find("deployments", {"id": deployment_id, "owner": user_id}, {"data": True})
+        else:
+            res = db.select("SELECT data FROM deployments WHERE id = %s and owner = %s", (deployment_id, user_id))
         db.close()
         if res:
-            deployment_data = res[0][1]
-            deployment = DeploymentInfo.model_validate_json(deployment_data)
+            if db.db_type == DataBase.MONGO:
+                deployment_data = res[0]["data"]
+            else:
+                deployment_data = res[0][0]
+            try:
+                dep_info = DeploymentInfo.model_validate_json(deployment_data)
+            except Exception as ex:
+                logger.error(f"Failed to parse deployment info from database: {str(ex)}")
+                msg = Error(id="500", description="Internal server error: corrupted deployment data")
+                return msg, 500
 
-            auth_data = _get_im_auth_header(user_token, deployment.allocation)
-            client = IMClient.init_client(IM_URL, auth_data)
-            success, state_info = client.get_infra_property(deployment_id, "state")
-            if not success:
-                msg = Error(description=state_info)
+            try:
+                if get_state:
+                    # Get the allocation info from the Allocation
+                    allocation_info = awm.routers.allocations._get_allocation(dep_info.deployment.allocation.id,
+                                                                              user_info,
+                                                                              request)
+                    if not allocation_info:
+                        return "Invalid AllocationId.", 400
+
+                    auth_data = _get_im_auth_header(user_token, allocation_info.allocation.root)
+                    client = IMClient.init_client(IM_URL, auth_data)
+                    success, state_info = client.get_infra_property(deployment_id, "state")
+                    if not success:
+                        msg = Error(description=state_info)
+                        return msg, 400
+                    dep_info.status = state_info['state']
+            except Exception as ex:
+                msg = Error(id="400", description=str(ex))
                 return msg, 400
-            deployment.status = state_info['state']
         else:
             msg = Error(id="404", description=f"Deployment {deployment_id} not found")
             return msg, 404
     else:
-        msg = Error(description="Database connection failed")
+        msg = Error(id="503", description="Database connection failed")
         return msg, 503
-    return deployment, 200
+    return dep_info, 200
 
 
-# GET /
-@router.get("/",
+# GET /deployments
+@router.get("/deployments",
             summary="List existing deployments",
             responses={200: {"model": PageOfDeployments,
                              "description": "Success"},
@@ -109,37 +146,51 @@ def list_deployments(
     db = DataBase(DB_URL)
     if db.connect():
         _init_table(db)
-        args = []
-        sql = "SELECT * FROM deployments"
-        if limit is not None:
-            sql += " LIMIT %s"
-            args = [limit]
-        if from_ is not None:
-            sql += " OFFSET %s"
-            args.append(from_)
-        res = db.select(sql, tuple(args))
-        for elem in res:
-            deployment_data = elem[1]
-            deployment_info = DeploymentInfo.model_validate_json(deployment_data)
-            # @TODO: Should we get the state from the IM?
-            deployments.append(deployment_info)
-        res = db.select("SELECT count(id) from deployments")
-        count = res[0][0] if res else 0
+        if db.db_type == DataBase.MONGO:
+            res = db.find("deployments", filt={"owner": user_info['sub']},
+                          projection={"data": True}, sort=[('created', -1)])
+            for count, elem in enumerate(res):
+                if from_ > count:
+                    continue
+                deployment_data = elem['data']
+                try:
+                    deployment_info = DeploymentInfo.model_validate_json(deployment_data)
+                except Exception as ex:
+                    logger.error("Failed to parse deployment info from database: %s", str(ex))
+                    continue
+                deployments.append(deployment_info)
+                if len(deployments) >= limit:
+                    break
+            count = len(res)
+        else:
+            sql = "SELECT data FROM deployments WHERE owner = %s order by created LIMIT %s OFFSET %s"
+            res = db.select(sql, (user_info['sub'], limit, from_))
+            for elem in res:
+                deployment_data = elem[0]
+                try:
+                    deployment_info = DeploymentInfo.model_validate_json(deployment_data)
+                except Exception as ex:
+                    logger.error("Failed to parse deployment info from database: %s", str(ex))
+                    continue
+                deployments.append(deployment_info)
+            res = db.select("SELECT count(id) from deployments WHERE owner = %s", (user_info['sub'],))
+            count = res[0][0] if res else 0
         db.close()
     else:
-        msg = Error(description="Database connection failed")
-        return msg.model_dump_json(), 503
+        return return_error("Database connection failed", 503)
 
-    base_url = str(request.base_url)[:-1] + request.url.path
-    next_url = f"{base_url}?from={from_ + limit}&limit={limit}" if from_ + limit < len(deployments) else None
-    previous_url = f"{base_url}?from={max(0, from_ - limit)}&limit={limit}" if from_ > 0 and len(deployments) > 0 else None
-    page = PageOfDeployments(from_=from_, limit=limit, elements=deployments, count=count,
-                             self_=str(request.url), nextPage=next_url, prevPage=previous_url)
-    return page
+    if all_nodes:
+        remote_count, remote_tools = EOSCNodeRegistry.list_deployments(from_, limit, count, user_info)
+        deployments.extend(remote_tools)
+        count += remote_count
+
+    page = PageOfDeployments(from_=from_, limit=limit, elements=deployments, count=count, self_=str(request.url))
+    page.set_next_and_prev_pages(request, all_nodes)
+    return Response(content=page.model_dump_json(), status_code=200, media_type="application/json")
 
 
-# GET /{deployment_id}
-@router.get("/{deployment_id}",
+# GET /deployment/{deployment_id}
+@router.get("/deployment/{deployment_id}",
             summary="Get information about an existing deployment",
             responses={200: {"model": DeploymentInfo,
                              "description": "Accepted"},
@@ -156,17 +207,18 @@ def list_deployments(
                        503: {"model": Error,
                              "description": "Try again later"}})
 def get_deployment(deployment_id,
+                   request: Request,
                    user_info=Depends(authenticate)):
     """Get information about an existing deployment
 
     :rtype: DeploymentInfo
     """
-    deployment, status_code = _get_deployment(deployment_id, user_info['token'])
+    deployment, status_code = _get_deployment(deployment_id, user_info, request)
     return Response(content=deployment.model_dump_json(), status_code=status_code, media_type="application/json")
 
 
-# GET /{deployment_id}
-@router.delete("/{deployment_id}",
+# DELETE /deployment/{deployment_id}
+@router.delete("/deployment/{deployment_id}",
                summary="Tear down an existing deployment",
                responses={204: {"description": "Accepted"},
                           400: {"model": Error,
@@ -182,16 +234,23 @@ def get_deployment(deployment_id,
                           503: {"model": Error,
                                 "description": "Try again later"}})
 def delete_deployment(deployment_id,
+                      request: Request,
                       user_info=Depends(authenticate)):
     """Tear down an existing deployment
 
     :rtype: Success
     """
-    deployment, status_code = _get_deployment(deployment_id, user_info['token'])
+    deployment, status_code = _get_deployment(deployment_id, user_info, request, get_state=False)
     if status_code != 200:
         return Response(content=deployment.model_dump_json(), status_code=status_code, media_type="application/json")
 
-    auth_data = _get_im_auth_header(user_info['token'], deployment.allocation)
+    # Get the allocation info from the Allocation
+    allocation_info = awm.routers.allocations._get_allocation(deployment.deployment.allocation.id, user_info)
+    if not allocation_info:
+        return return_error("Invalid AllocationId.", status_code=400)
+    allocation = allocation_info.allocation
+
+    auth_data = _get_im_auth_header(user_info['token'], allocation.root)
     client = IMClient.init_client(IM_URL, auth_data)
     success, msg = client.destroy(deployment_id)
 
@@ -202,14 +261,20 @@ def delete_deployment(deployment_id,
     db = DataBase(DB_URL)
     if db.connect():
         _init_table(db)
-        db.select("DELETE FROM deployments WHERE id = %s", (deployment_id,))
+        if db.db_type == DataBase.MONGO:
+            db.delete("deployments", {"id": deployment_id})
+        else:
+            db.execute("DELETE FROM deployments WHERE id = %s", (deployment_id,))
         db.close()
+    else:
+        return return_error("Database connection failed", 503)
 
-    return Response(status_code=204)
+    msg = Success(message="Deleting")
+    return Response(content=msg.model_dump_json(exclude_unset=True), status_code=202, media_type="application/json")
 
 
-# POST /
-@router.post("/",
+# POST /deployments
+@router.post("/deployments",
              summary="Deploy workload to an EOSC environment or an infrastructure for which the user has credentials",
              responses={201: {"model": DeploymentId,
                               "description": "Accepted"},
@@ -233,39 +298,45 @@ def deploy_workload(deployment: Deployment,
 
     :rtype: DeploymentId
     """
+    # Get the Tool from the ID
+    tool, status_code = awm.routers.tools.get_tool_from_repo(deployment.tool.id, deployment.tool.version, request)
+    if status_code != 200:
+        return Response(tool, status=400, mimetype="application/json")
 
-    auth_data = _get_im_auth_header(user_info['token'], deployment.allocation)
+    # Get the allocation info from the Allocation
+    allocation_info = awm.routers.allocations._get_allocation(deployment.allocation.id, user_info)
+    if not allocation_info:
+        return return_error("Invalid AllocationId.", status_code=400)
+    allocation = allocation_info.allocation
+
+    auth_data = _get_im_auth_header(user_info['token'], allocation.root)
 
     # Create the infrastructure in the IM
     client = IMClient.init_client(IM_URL, auth_data)
-    if deployment.tool.kind == "ToolId":
-        tool, status_code = get_tool_from_tm(deployment.tool.id, user_info['token'])
-        if status_code != 200:
-            return Response(content=tool, status_code=400, media_type="application/json")
-    else:
-        tool = deployment.tool
-
     success, deployment_id = client.create(tool.blueprint, "yaml", True)
     if not success:
-        msg = Error(description=deployment_id)
-        return msg.to_dict(), 400
+        return_error(deployment_id, 400)
 
     db = DataBase(DB_URL)
     if db.connect():
         _init_table(db)
-        deployment = DeploymentInfo(id=deployment_id,
-                                    deployment=deployment,
-                                    status="pending",
-                                    self_=f"{request.url}/{deployment_id}")
-        data = deployment.model_dump_json()
-        res = db.execute("replace into deployments (id, data) values (%s, %s)", (deployment_id, data))
+        deployment_info = DeploymentInfo(id=deployment_id,
+                                         deployment=deployment,
+                                         status="pending",
+                                         self_=str(request.url_for("get_deployment", deployment_id=deployment_id)))
+        data = deployment_info.model_dump_json(exclude_unset=True)
+        if db.db_type == DataBase.MONGO:
+            res = db.replace("deployments", {"id": deployment_id}, {"id": deployment_id, "data": data,
+                                                                    "owner": user_info['sub'],
+                                                                    "created": time.time()})
+        else:
+            res = db.execute("replace into deployments (id, data, created, owner) values (%s, %s, %s, %s)",
+                             (deployment_id, data, time.time(), user_info['sub']))
         db.close()
         if not res:
-            msg = Error(description="Failed to store deployment information in the database")
-            return Response(content=msg.model_dump_json(), status_code=503, media_type="application/json")
+            return return_error("Failed to store deployment information in the database", 503)
     else:
-        msg = Error(description="Database connection failed")
-        return Response(content=msg.model_dump_json(), status_code=503, media_type="application/json")
+        return return_error("Database connection failed", 503)
 
-    dep_id = DeploymentId(id=deployment_id, kind="DeploymentId", self_=deployment.self_)
-    return Response(content=dep_id.model_dump_json(), status_code=201, media_type="application/json")
+    dep_id = DeploymentId(id=deployment_id, kind="DeploymentId", infoLink=deployment_info.self_)
+    return Response(content=dep_id.model_dump_json(), status_code=202, media_type="application/json")

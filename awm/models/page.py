@@ -1,9 +1,9 @@
-from typing import List, Union, Literal
-from pydantic import BaseModel, Field, EmailStr, HttpUrl
-from datetime import datetime
+from typing import List, Union
+from pydantic import BaseModel, Field, HttpUrl
 from awm.models.allocation import AllocationInfo
 from awm.models.tool import ToolInfo
 from awm.models.deployment import DeploymentInfo
+from fastapi import Request
 
 
 class Page(BaseModel):
@@ -17,6 +17,17 @@ class Page(BaseModel):
 
     class Config:
         populate_by_name = True
+
+    def set_next_and_prev_pages(self, request: Request, all_nodes: bool):
+        base_url = request.url.scheme + "://" + request.url.hostname + request.url.path
+        if all_nodes:
+            base_url += "?allNodes=true&"
+        else:
+            base_url += "?"
+        if self.from_ + self.limit < self.count:
+            self.nextPage = HttpUrl(f"{base_url}from={self.from_ + self.limit}&limit={self.limit}")
+        if self.from_ > 0 and self.count > 0:
+            self.prevPage = HttpUrl(f"{base_url}from={max(0, self.from_ - self.limit)}&limit={self.limit}")
 
 
 class PageOfAllocations(Page):
@@ -32,3 +43,8 @@ class PageOfDeployments(Page):
 class PageOfTools(Page):
     """Page of Tools"""
     elements: List[ToolInfo]
+
+
+class PageOfItems(Page):
+    """Generic Page of any item"""
+    elements: List[Union[AllocationInfo, DeploymentInfo, ToolInfo]]

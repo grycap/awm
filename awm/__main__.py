@@ -3,7 +3,7 @@ import os
 import logging
 from dotenv import load_dotenv
 from fastapi import FastAPI
-from awm.routers import deployments, allocations, tools, service, users
+from awm.routers import deployments, allocations, tools, service
 
 
 load_dotenv()
@@ -28,33 +28,29 @@ def create_app():
 
     app.include_router(
         deployments.router,
-        prefix="/deployments",
         tags=["Deployments"]
     )
 
     app.include_router(
         allocations.router,
-        prefix="/allocations",
         tags=["Allocations"]
     )
 
     app.include_router(
         tools.router,
-        prefix="/tools",
         tags=["Tools"]
     )
 
     app.include_router(
         service.router,
-        prefix="/version",
         tags=["Service"]
     )
 
-    app.include_router(
-        users.router,
-        prefix="/user",
-        tags=["Users"]
-    )
+#    app.include_router(
+#        users.router,
+#        prefix="/user",
+#        tags=["Users"]
+#    )
 
     return app
 

@@ -1,5 +1,5 @@
 from typing import Union, Literal, Annotated
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, RootModel
 from datetime import datetime
 
 
@@ -30,9 +30,9 @@ class EoscNodeEnvironment(BaseModel):
     awmAPI: HttpUrl = Field(..., description="Base URL for the AWM API of the EOSC node where this environment was allocated, or null for environments private to the calling user that accessed via explicit credentials")
 
 
-class CredentialsOpenStack(BaseModel):
+class OpenStackEnvironment(BaseModel):
     """Credentials for OpenStack"""
-    kind: Literal['CredentialsOpenStack'] = 'CredentialsOpenStack'
+    kind: Literal['OpenStackEnvironment'] = 'OpenStackEnvironment'
     userName: str = None
     domain: str = None
     domainId: str = None
@@ -44,28 +44,26 @@ class CredentialsOpenStack(BaseModel):
     apiVersion: str = None
 
 
-class CredentialsKubernetes(BaseModel):
+class KubernetesEnvironment(BaseModel):
     """Credentials for Kubernetes"""
-    kind: Literal['CredentialsKubernetes'] = 'CredentialsKubernetes'
+    kind: Literal['KubernetesEnvironment'] = 'KubernetesEnvironment'
     host: HttpUrl
 
 
-Credentials = Annotated[
-    Union[CredentialsOpenStack, CredentialsKubernetes],
+AllocationUnion = Annotated[
+    Union[EoscNodeEnvironment, OpenStackEnvironment, KubernetesEnvironment],
     Field(discriminator='kind')
 ]
 
 
-Allocation = Annotated[
-    Union[EoscNodeEnvironment, CredentialsOpenStack, CredentialsKubernetes],
-    Field(discriminator='kind')
-]
+class Allocation(RootModel[AllocationUnion]):
+    pass
 
 
-class AllocationlId(BaseModel):
+class AllocationId(BaseModel):
     kind: Literal['AllocationId'] = 'AllocationId'
     id: str = Field(..., description="Unique identifier for this allocation")
-    infoLink: str | None = Field(None, description="Endpoint that returns more details about this entity")
+    infoLink: HttpUrl | None = Field(None, description="Endpoint that returns more details about this entity")
 
 
 class AllocationInfo(BaseModel):
