@@ -1,8 +1,10 @@
 # coding: utf-8
 import pytest
+from pydantic import HttpUrl
 from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock
 from awm.__main__ import create_app
+from awm.utils.node_registry import EOSCNode
 
 
 @pytest.fixture
@@ -36,6 +38,30 @@ def db_mock(mocker):
     return instance
 
 
+@pytest.fixture
+def list_nodes_mock(mocker):
+    return mocker.patch("awm.utils.node_registry.EOSCNodeRegistry.list_nodes")
+
+
+@pytest.fixture
+def requests_get_mock(mocker):
+    return mocker.patch("requests.get")
+
+
+@pytest.fixture
+def list_deployments_mock(mocker):
+    return mocker.patch("awm.routers.deployments._list_deployments")
+
+@pytest.fixture
+def time_mock(mocker):
+    return mocker.patch("time.time", return_value=1000)
+
+
+@pytest.fixture
+def uuid_mock(mocker):
+    return mocker.patch("uuid.uuid4", return_value="new-id")
+
+
 def _get_allocation_info():
     return '{"kind": "KubernetesEnvironment", "host": "http://some.url/"}'
 
@@ -43,6 +69,94 @@ def _get_allocation_info():
 def test_list_allocations(check_oidc_mock, client, headers):
     response = client.get('/allocations/', headers=headers)
     assert response.status_code == 200
+
+
+def test_list_allocations_remote(
+    client, mocker, check_oidc_mock, db_mock, list_nodes_mock, requests_get_mock
+):
+    selects = [
+        [['id1', '{"kind": "KubernetesEnvironment","host": "http://k8s.io"}']],
+        [[1]],
+        [],
+        [[1]],
+        [],
+        [[1]],
+        [],
+        [[1]]
+    ]
+    db_mock.select.side_effect = selects
+
+    node1 = EOSCNode(awmAPI=HttpUrl("http://server1.com"), nodeId="n1")
+    node2 = EOSCNode(awmAPI=HttpUrl("http://server2.com"), nodeId="n2")
+    list_nodes_mock.return_value = [node1, node2]
+    resp1 = MagicMock()
+    resp1.status_code = 200
+    resp1.json.return_value = {'count': 1,
+                               'elements': [{'allocation': {'host': 'http://k8s.io/',
+                                                            'kind': 'KubernetesEnvironment'},
+                                             'id': 'id1',
+                                             'self': 'http://localhost/awm/allocation/id1'}],
+                               'from': 0,
+                               'limit': 100}
+    resp2 = MagicMock()
+    resp2.status_code = 200
+    resp2.json.return_value = {'count': 2,
+                               'elements': [{'allocation': {'host': 'http://k8s.io/',
+                                                            'kind': 'KubernetesEnvironment'},
+                                             'id': 'id1',
+                                             'self': 'http://localhost/awm/allocation/id1'},
+                                            {'allocation': {'host': 'http://k8s2.io/',
+                                                            'kind': 'KubernetesEnvironment'},
+                                             'id': 'id2',
+                                             'self': 'http://localhost/awm/allocation/id2'}],
+                               'from': 0,
+                               'limit': 100}
+
+    resp3 = MagicMock()
+    resp3.status_code = 200
+    resp3.json.return_value = {'count': 2,
+                               'elements': [{'allocation': {'host': 'http://k8s.io/',
+                                                            'kind': 'KubernetesEnvironment'},
+                                             'id': 'id1',
+                                             'self': 'http://localhost/awm/allocation/id1'}],
+                               'from': 0,
+                               'limit': 100}
+    requests_get_mock.side_effect = [resp1, resp2, resp1, resp1, resp1, resp2, resp1, resp3]
+
+    headers = {"Authorization": "Bearer you-very-secret-token"}
+    response = client.get("/allocations?allNodes=true", headers=headers)
+    assert response.status_code == 200
+    assert response.json()["count"] == 4
+    assert len(response.json()["elements"]) == 4
+    requests_get_mock.assert_any_call('http://server1.com/allocations?from0&limit=99',
+                                      headers={'Authorization': 'Bearer token'}, timeout=30)
+    requests_get_mock.assert_any_call('http://server2.com/allocations?from0&limit=98',
+                                      headers={'Authorization': 'Bearer token'}, timeout=30)
+
+    response = client.get("/allocations?allNodes=true&from=1&limit=2", headers=headers)
+    assert response.status_code == 200
+    assert response.json()["count"] == 3
+    assert len(response.json()["elements"]) == 2
+    requests_get_mock.assert_any_call('http://server1.com/allocations?from0&limit=2',
+                                      headers={'Authorization': 'Bearer token'}, timeout=30)
+    requests_get_mock.assert_any_call('http://server2.com/allocations?from0&limit=1',
+                                      headers={'Authorization': 'Bearer token'}, timeout=30)
+
+    response = client.get("/allocations?allNodes=true&from=3&limit=2", headers=headers)
+    assert response.status_code == 200
+    assert response.json()["count"] == 4
+    assert len(response.json()["elements"]) == 1
+
+    response = client.get("/allocations?allNodes=true&from=1&limit=2", headers=headers)
+    assert response.status_code == 200
+    assert response.json()["count"] == 4
+    assert len(response.json()["elements"]) == 2
+    requests_get_mock.assert_any_call('http://server1.com/allocations?from0&limit=2',
+                                      headers={'Authorization': 'Bearer token'}, timeout=30)
+    requests_get_mock.assert_any_call('http://server2.com/allocations?from0&limit=1',
+                                      headers={'Authorization': 'Bearer token'}, timeout=30)
+    assert str(response.json()["nextPage"]) == "http://testserver/allocations?allNodes=true&from=3&limit=2"
+    assert str(response.json()["prevPage"]) == "http://testserver/allocations?allNodes=true&from=0&limit=2"
 
 
 def test_get_allocation(check_oidc_mock, db_mock, client, headers):
@@ -54,3 +168,65 @@ def test_get_allocation(check_oidc_mock, db_mock, client, headers):
 
     response = client.get('/allocation/1', headers=headers)
     assert response.status_code == 200
+
+
+def test_delete_allocation(check_oidc_mock, list_deployments_mock, db_mock, client, headers):
+
+    selects = [
+        [['id1', '{"kind": "KubernetesEnvironment","host": "http://k8s.io"}']],
+        [['id1', '{"kind": "KubernetesEnvironment","host": "http://k8s.io"}']]
+    ]
+    db_mock.select.side_effect = selects
+
+    list_deployments_mock.return_value.status_code = 200
+    list_deployments_mock.return_value.json = {"from": 0, "limit": 100, "count": 0, "self": "", "elements": []}
+
+    headers = {"Authorization": "Bearer you-very-secret-token"}
+    response = client.delete('/allocation/id1', headers=headers)
+    assert response.status_code == 200
+    assert response.json() == {"message": "Deleted"}
+    db_mock.execute.assert_called_with("DELETE FROM allocations WHERE id = %s", ('id1',))
+
+    list_deployments_mock.return_value.status_code = 200
+    list_deployments_mock.return_value.json = {"from": 0, "limit": 100, "count": 0, "self": "",
+                                               "elements": [
+                                                {
+                                                    "deployment": {
+                                                        "allocation": {
+                                                            "kind": "AllocationId",
+                                                            "id": "id1",
+                                                            "infoLink": "http://some.url/"
+                                                        },
+                                                        "tool": {
+                                                            "kind": "ToolId",
+                                                            "id": "toolid",
+                                                            "version": "latest",
+                                                            "infoLink": "http://some.url/"
+                                                        },
+                                                    },
+                                                    "id": "dep_id",
+                                                    "status": "pending",
+                                                }
+                                                ]}
+    response = client.delete('/allocation/id1', headers=headers)
+    assert response.status_code == 409
+    assert response.json() == {'description': 'Allocation in use', 'id': '409'}
+
+
+def test_create_allocation(check_oidc_mock, time_mock, uuid_mock, db_mock, client, headers):
+    """Test AWM create allocation endpoint."""
+    headers = {
+        "Authorization": "Bearer you-very-secret-token",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "kind": "KubernetesEnvironment",
+        "host": "http://k8s.io"
+    }
+    response = client.post('/allocations', headers=headers, json=payload)
+    assert response.status_code == 201
+    assert response.json() == {'id': 'new-id', 'infoLink': 'http://testserver/allocation/new-id'}
+    db_mock.execute.assert_called_with(
+        "replace into allocations (id, data, owner, created) values (%s, %s, %s, %s)",
+        ('new-id', '{"kind":"KubernetesEnvironment","host":"http://k8s.io/"}', 'user123', 1000)
+    )

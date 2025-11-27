@@ -118,30 +118,9 @@ def _get_deployment(deployment_id: str, user_info: dict, request: Request,
     return dep_info, 200
 
 
-# GET /deployments
-@router.get("/deployments",
-            summary="List existing deployments",
-            responses={200: {"model": PageOfDeployments,
-                             "description": "Success"},
-                       400: {"model": Error,
-                             "description": "Invalid parameters or configuration"},
-                       401: {"model": Error,
-                             "description": "Permission denied"},
-                       403: {"model": Error,
-                             "description": "Forbidden"},
-                       419: {"model": Error,
-                             "description": "Re-delegate credentials"},
-                       503: {"model": Error,
-                             "description": "Try again later"}})
-def list_deployments(
-    request: Request,
-    from_: int = Query(0, alias="from", ge=0,
-                       description="Index of the first element to return"),
-    limit: int = Query(100, alias="limit", ge=1,
-                       description="Maximum number of elements to return"),
-    all_nodes: bool = Query(False, alias="allNodes"),
-    user_info=Depends(authenticate)
-):
+def _list_deployments(from_: int = 0, limit: int = 100,
+                      all_nodes: bool = False,
+                      user_info: dict = None, request: Request = None) -> Response:
     deployments = []
     db = DataBase(DB_URL)
     if db.connect():
@@ -187,6 +166,33 @@ def list_deployments(
     page = PageOfDeployments(from_=from_, limit=limit, elements=deployments, count=count, self_=str(request.url))
     page.set_next_and_prev_pages(request, all_nodes)
     return Response(content=page.model_dump_json(), status_code=200, media_type="application/json")
+
+
+# GET /deployments
+@router.get("/deployments",
+            summary="List existing deployments",
+            responses={200: {"model": PageOfDeployments,
+                             "description": "Success"},
+                       400: {"model": Error,
+                             "description": "Invalid parameters or configuration"},
+                       401: {"model": Error,
+                             "description": "Permission denied"},
+                       403: {"model": Error,
+                             "description": "Forbidden"},
+                       419: {"model": Error,
+                             "description": "Re-delegate credentials"},
+                       503: {"model": Error,
+                             "description": "Try again later"}})
+def list_deployments(
+    request: Request,
+    from_: int = Query(0, alias="from", ge=0,
+                       description="Index of the first element to return"),
+    limit: int = Query(100, alias="limit", ge=1,
+                       description="Maximum number of elements to return"),
+    all_nodes: bool = Query(False, alias="allNodes"),
+    user_info=Depends(authenticate)
+):
+    return _list_deployments(from_, limit, all_nodes, user_info, request)
 
 
 # GET /deployment/{deployment_id}

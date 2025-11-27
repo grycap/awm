@@ -94,7 +94,7 @@ def list_allocations(
                 allocation = Allocation.model_validate_json(allocation_data)
                 allocation_info = AllocationInfo(
                     id=allocation_id,
-                    self_=request.url_for(f"/allocation/{allocation_id}"),
+                    self_=str(request.url_for("get_allocation", allocation_id=allocation_id)),
                     allocation=allocation
                 )
                 allocations.append(allocation_info)
@@ -177,9 +177,9 @@ def get_allocation(request: Request,
     return Response(content=allocation_info.model_dump_json(), status_code=200, media_type="application/json")
 
 
-def _check_allocation_in_use(allocation_id: str) -> Response:
+def _check_allocation_in_use(allocation_id: str, user_info: dict, request: Request) -> Response:
     # check if this allocation is used in any deployment
-    response = awm.routers.deployments._list_deployments()
+    response = awm.routers.deployments._list_deployments(user_info=user_info, request=request)
     if response.status_code != 200:
         return response
 
@@ -206,13 +206,14 @@ def _check_allocation_in_use(allocation_id: str) -> Response:
                        503: {"model": Error,
                              "description": "Try again later"}})
 def update_allocation(allocation_id,
+                      request: Request,
                       user_info=Depends(authenticate)):
-    allocation_info = _get_allocation(allocation_id, user_info)
+    allocation_info = _get_allocation(allocation_id, user_info, request)
     if allocation_info is None:
         return return_error("Allocation not found", status_code=404)
 
     # check if this allocation is used in any deployment
-    response = _check_allocation_in_use(allocation_id)
+    response = _check_allocation_in_use(allocation_id, user_info, request)
     if response:
         return response
 
@@ -222,13 +223,13 @@ def update_allocation(allocation_id,
     if not allocation_id:
         return return_error("Database connection failed", 503)
 
-    allocation_info = _get_allocation(allocation_id, user_info)
+    allocation_info = _get_allocation(allocation_id, user_info, request)
     return Response(content=allocation_info.model_dump_json(exclude_unset=True, by_alias=True),
                     status_code=200, media_type="application/json")
 
 
 # DELETE /allocation/{allocation_id}
-@router.delete("/{allocation_id}",
+@router.delete("/allocation/{allocation_id}",
                summary="Remove existing environment of the user",
                responses={204: {"description": "Accepted"},
                           400: {"model": Error,
@@ -244,17 +245,18 @@ def update_allocation(allocation_id,
                           503: {"model": Error,
                                 "description": "Try again later"}})
 def delete_allocation(allocation_id,
+                      request: Request,
                       user_info=Depends(authenticate)):
     """Remove existing environment of the user
 
     :rtype: Success
     """
-    allocation_info = _get_allocation(allocation_id, user_info)
+    allocation_info = _get_allocation(allocation_id, user_info, request)
     if allocation_info is None:
         return return_error("Allocation not found", status_code=404)
 
     # check if this allocation is used in any deployment
-    response = _check_allocation_in_use(allocation_id)
+    response = _check_allocation_in_use(allocation_id, user_info, request)
     if response:
         return response
 
@@ -333,7 +335,7 @@ def create_allocation(allocation: Allocation,
     if not allocation_id:
         return return_error("Database connection failed", 503)
 
-    url = request.url_for(f"/allocation/{allocation_id}"),
+    url = str(request.url_for("get_allocation", allocation_id=allocation_id))
     allocation_id_model = AllocationId(id=allocation_id, infoLink=url)
     return Response(content=allocation_id_model.model_dump_json(exclude_unset=True, by_alias=True),
                     status_code=201, media_type="application/json")
