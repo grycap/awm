@@ -1,5 +1,7 @@
 fastapi==0.110.0
 pydantic==2.7.1
-pydantic[email]==2.2.0
-python-dotenv
+pydantic[email]==2.7.1
+python-dotenv==1.2.1
 im-client >= 1.8.2
+uvicorn[standard]==0.38.0
+requests-cache==1.2.1
