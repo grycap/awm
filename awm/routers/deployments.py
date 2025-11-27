@@ -260,8 +260,7 @@ def delete_deployment(deployment_id,
     success, msg = client.destroy(deployment_id)
 
     if not success:
-        error_msg = Error(description=msg)
-        return Response(content=error_msg.model_dump_json(), status_code=400, media_type="application/json")    
+        return return_error(msg, 400)
 
     db = DataBase(DB_URL)
     if db.connect():
