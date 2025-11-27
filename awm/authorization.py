@@ -4,7 +4,11 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from awm.oidc.client import OpenIDClient
 
 # Middleware de seguridad HTTP para Bearer Token
-security = HTTPBearer()
+security = HTTPBearer(
+    scheme_name="OIDC",
+    description="OpenID Connect access token for authentication",
+    bearerFormat="JWT"
+)
 logger = logging.getLogger(__name__)
 
 
@@ -14,7 +18,7 @@ def authenticate(
     token = credentials.credentials
     user_info = check_OIDC(token)
     if user_info is None:
-        raise HTTPException(status_code=401, detail="Invalid or missing token")
+        raise HTTPException(status_code=401, detail="Authorization required")
     return user_info
 
 

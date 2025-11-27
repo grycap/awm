@@ -10,6 +10,7 @@ from awm.models.page import PageOfTools
 from awm.models.error import Error
 from awm.utils.node_registry import EOSCNodeRegistry
 from awm.utils.repository import Repository
+from . import return_error
 
 
 AWM_TOOLS_REPO = os.getenv("DB_URL", "https://github.com/grycap/tosca/blob/eosc_lot1/templates/")
@@ -90,7 +91,7 @@ def get_tool_from_repo(tool_id: str, version: str, request: Request) -> Tuple[Un
                        400: {"model": Error,
                              "description": "Invalid parameters or configuration"},
                        401: {"model": Error,
-                             "description": "Permission denied"},
+                             "description": "Authorization required"},
                        403: {"model": Error,
                              "description": "Forbidden"},
                        419: {"model": Error,
@@ -113,8 +114,7 @@ def list_tools(
         tools_list = repo.list()
     except Exception as e:
         logger.error("Failed to get list of Tools: %s", e)
-        msg = Error(description="Failed to get list of Tools")
-        return Response(msg.model_dump_json(exclude_unset=True), 503, mimetype="application/json")
+        return return_error("503", "Failed to get list of Tools")
 
     count = 0
     for _, elem in tools_list.items():
@@ -148,7 +148,7 @@ def list_tools(
                        400: {"model": Error,
                              "description": "Invalid parameters or configuration"},
                        401: {"model": Error,
-                             "description": "Permission denied"},
+                             "description": "Authorization required"},
                        403: {"model": Error,
                              "description": "Forbidden"},
                        404: {"model": Error,

@@ -21,13 +21,13 @@ class EoscNodeEnvironment(BaseModel):
     """Environment variables for EOSC node"""
     kind: Literal['EoscNodeEnvironment'] = 'EoscNodeEnvironment'
     offer: EoscNodeEnvironment_offer
-    projectId: str = None
+    projectId: str
     hostname: HttpUrl = None
     provisionedOn: datetime = None
     expiresOn: datetime = None
-    nodeName: str = Field(..., description="Name of the EOSC node where this environment was allocated")
-    nodeUID: str | None = Field(None, description="URL to the interactive UI of the EOSC node where this environment was allocated")
-    awmAPI: HttpUrl = Field(..., description="Base URL for the AWM API of the EOSC node where this environment was allocated, or null for environments private to the calling user that accessed via explicit credentials")
+    nodeName: str | None = Field(None, description="Name of the EOSC node where this environment was allocated")
+    nodeId: str = Field(..., description="URL to the interactive UI of the EOSC node where this environment was allocated")
+    awmApi: HttpUrl = Field(..., description="Base URL for the AWM API of the EOSC node where this environment was allocated, or null for environments private to the calling user that accessed via explicit credentials")
 
 
 class OpenStackEnvironment(BaseModel):

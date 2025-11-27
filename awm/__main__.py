@@ -23,7 +23,7 @@ def create_app():
     app = FastAPI(
         title="EOSC AWM API",
         description="EOSC Application Workflow Management API",
-        version="1.0.0",
+        version="0.1.46",
         docs_url="/",
     )
 
