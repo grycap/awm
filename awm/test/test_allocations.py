@@ -1,5 +1,6 @@
 # coding: utf-8
 import pytest
+import json
 from pydantic import HttpUrl
 from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock
@@ -180,7 +181,7 @@ def test_delete_allocation(check_oidc_mock, list_deployments_mock, db_mock, clie
     db_mock.select.side_effect = selects
 
     list_deployments_mock.return_value.status_code = 200
-    list_deployments_mock.return_value.json.return_value = {"from": 0, "limit": 100, "count": 0, "self": "", "elements": []}
+    list_deployments_mock.return_value.body = b'{"from": 0, "limit": 100, "count": 0, "self": "", "elements": []}'
 
     headers = {"Authorization": "Bearer you-very-secret-token"}
     response = client.delete('/allocation/id1', headers=headers)
@@ -189,7 +190,7 @@ def test_delete_allocation(check_oidc_mock, list_deployments_mock, db_mock, clie
     db_mock.execute.assert_called_with("DELETE FROM allocations WHERE id = %s", ('id1',))
 
     list_deployments_mock.return_value.status_code = 200
-    list_deployments_mock.return_value.json.return_value = {
+    list_deployments_mock.return_value.body = json.dumps({
         "from": 0, "limit": 100, "count": 0, "self": "",
         "elements": [{
             "deployment": {
@@ -208,7 +209,7 @@ def test_delete_allocation(check_oidc_mock, list_deployments_mock, db_mock, clie
             "id": "dep_id",
             "status": "pending",
         }
-        ]}
+        ]}).encode()
     response = client.delete('/allocation/id1', headers=headers)
     assert response.status_code == 409
     assert response.json() == {'description': 'Allocation in use', 'id': '409'}
@@ -240,7 +241,7 @@ def test_update_allocation(check_oidc_mock, list_deployments_mock, db_mock, clie
     db_mock.select.side_effect = selects
 
     list_deployments_mock.return_value.status_code = 200
-    list_deployments_mock.return_value.json.return_value = {"from": 0, "limit": 100, "count": 0, "self": "", "elements": []}
+    list_deployments_mock.return_value.body = b'{"from": 0, "limit": 100, "count": 0, "self": "", "elements": []}'
 
     payload = {
         "kind": "KubernetesEnvironment",

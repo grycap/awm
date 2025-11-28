@@ -47,9 +47,7 @@ def requests_get_mock(mocker):
     return mocker.patch("requests.get")
 
 
-def test_list_tools(client, check_oidc_mock, repo_mock):
-    headers = {"Authorization": "Bearer you-very-secret-token"}
-
+def test_list_tools(client, check_oidc_mock, repo_mock, headers):
     repo_mock.list.return_value = {"elem": {"path": "path", "sha": "version"}}
     repo_mock.get.return_value = "description: DESC\nmetadata:\n  template_name: NAME"
 
@@ -76,10 +74,8 @@ def test_list_tools(client, check_oidc_mock, repo_mock):
 
 
 def test_list_tools_remote(
-    client, mocker, check_oidc_mock, repo_mock, list_nodes_mock, requests_get_mock
+    client, mocker, check_oidc_mock, repo_mock, list_nodes_mock, requests_get_mock, headers
 ):
-    headers = {"Authorization": "Bearer you-very-secret-token"}
-
     blueprint = "description: DESC\nmetadata:\n  template_name: NAME"
     repo_mock.list.return_value = {"elem": {"path": "path", "sha": "version"}}
     repo_mock.get.return_value = blueprint
@@ -158,10 +154,8 @@ def test_list_tools_remote(
     assert len(response.json()["elements"]) == 1
 
 
-def test_get_tool(client, check_oidc_mock, repo_mock):
-    headers = {"Authorization": "Bearer you-very-secret-token"}
-
-    repo_response = repo_mock.get_by_sha.return_value = MagicMock()
+def test_get_tool(client, check_oidc_mock, repo_mock, headers):
+    repo_response = repo_mock.get_by_path.return_value = MagicMock()
     repo_response.status_code = 200
     repo_response.json.return_value = {
         "sha": "version",

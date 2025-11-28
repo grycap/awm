@@ -2,6 +2,7 @@ import os
 import uuid
 import time
 import awm
+import json
 from fastapi import APIRouter, Query, Depends, Request, Response
 from awm.authorization import authenticate
 from awm.models.allocation import AllocationInfo, Allocation, AllocationId
@@ -181,7 +182,7 @@ def _check_allocation_in_use(allocation_id: str, user_info: dict, request: Reque
     if response.status_code != 200:
         return response
 
-    for dep_info in response.json().get("elements"):
+    for dep_info in json.loads(response.body).get("elements"):
         if dep_info.get('deployment', {}).get('allocation', {}).get('id') == allocation_id:
             return return_error("Allocation in use", 409)
 

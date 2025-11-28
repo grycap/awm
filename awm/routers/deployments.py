@@ -250,7 +250,7 @@ def delete_deployment(deployment_id,
         return Response(content=deployment.model_dump_json(exclude_unset=True, by_alias=True), status_code=status_code, media_type="application/json")
 
     # Get the allocation info from the Allocation
-    allocation_info = awm.routers.allocations._get_allocation(deployment.deployment.allocation.id, user_info)
+    allocation_info = awm.routers.allocations._get_allocation(deployment.deployment.allocation.id, user_info, request)
     if not allocation_info:
         return return_error("Invalid AllocationId.", status_code=400)
     allocation = allocation_info.allocation
