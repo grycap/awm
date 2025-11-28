@@ -17,7 +17,7 @@ from . import return_error
 
 
 router = APIRouter()
-IM_URL = os.getenv("IM_URL", "http://localhost:8080")
+IM_URL = os.getenv("IM_URL", "http://localhost:8800")
 DB_URL = os.getenv("DB_URL", "file:///tmp/awm.db")
 
 
@@ -164,7 +164,7 @@ def _list_deployments(from_: int = 0, limit: int = 100,
 
     page = PageOfDeployments(from_=from_, limit=limit, elements=deployments, count=count, self_=str(request.url))
     page.set_next_and_prev_pages(request, all_nodes)
-    return Response(content=page.model_dump_json(), status_code=200, media_type="application/json")
+    return Response(content=page.model_dump_json(exclude_unset=True, by_alias=True), status_code=200, media_type="application/json")
 
 
 # GET /deployments
@@ -219,7 +219,7 @@ def get_deployment(deployment_id,
     :rtype: DeploymentInfo
     """
     deployment, status_code = _get_deployment(deployment_id, user_info, request)
-    return Response(content=deployment.model_dump_json(), status_code=status_code, media_type="application/json")
+    return Response(content=deployment.model_dump_json(exclude_unset=True, by_alias=True), status_code=status_code, media_type="application/json")
 
 
 # DELETE /deployment/{deployment_id}
@@ -247,7 +247,7 @@ def delete_deployment(deployment_id,
     """
     deployment, status_code = _get_deployment(deployment_id, user_info, request, get_state=False)
     if status_code != 200:
-        return Response(content=deployment.model_dump_json(), status_code=status_code, media_type="application/json")
+        return Response(content=deployment.model_dump_json(exclude_unset=True, by_alias=True), status_code=status_code, media_type="application/json")
 
     # Get the allocation info from the Allocation
     allocation_info = awm.routers.allocations._get_allocation(deployment.deployment.allocation.id, user_info)
@@ -308,7 +308,7 @@ def deploy_workload(deployment: Deployment,
         return Response(tool, status=400, mimetype="application/json")
 
     # Get the allocation info from the Allocation
-    allocation_info = awm.routers.allocations._get_allocation(deployment.allocation.id, user_info)
+    allocation_info = awm.routers.allocations._get_allocation(deployment.allocation.id, user_info, request)
     if not allocation_info:
         return return_error("Invalid AllocationId.", status_code=400)
     allocation = allocation_info.allocation
@@ -343,4 +343,4 @@ def deploy_workload(deployment: Deployment,
         return return_error("Database connection failed", 503)
 
     dep_id = DeploymentId(id=deployment_id, kind="DeploymentId", infoLink=deployment_info.self_)
-    return Response(content=dep_id.model_dump_json(), status_code=202, media_type="application/json")
+    return Response(content=dep_id.model_dump_json(exclude_unset=True, by_alias=True), status_code=202, media_type="application/json")

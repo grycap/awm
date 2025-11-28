@@ -57,7 +57,7 @@ def get_tool_from_repo(tool_id: str, version: str, request: Request) -> Tuple[Un
     repo_tool_id = tool_id.replace("_", "/")
     try:
         repo = Repository.create(AWM_TOOLS_REPO)
-        if version:
+        if version and version != "latest":
             response = repo.get_by_sha(version)
         else:
             response = repo.get_by_path(repo_tool_id, True)

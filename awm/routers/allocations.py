@@ -172,7 +172,7 @@ def get_allocation(request: Request,
     if allocation_info is None:
         return return_error("Allocation not found", status_code=404)
 
-    return Response(content=allocation_info.model_dump_json(), status_code=200, media_type="application/json")
+    return Response(content=allocation_info.model_dump_json(exclude_unset=True, by_alias=True), status_code=200, media_type="application/json")
 
 
 def _check_allocation_in_use(allocation_id: str, user_info: dict, request: Request) -> Response:
@@ -281,7 +281,7 @@ def _create_allocation(allocation: Allocation,
     db = DataBase(DB_URL)
     if db.connect():
         _init_table(db)
-        data = allocation.model_dump_json(exclude_unset=True)
+        data = allocation.model_dump_json(exclude_unset=True, by_alias=True)
         if db.db_type == DataBase.MONGO:
             if allocation_id is None:  # new allocation
                 allocation_id = str(uuid.uuid4())
