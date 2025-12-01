@@ -30,6 +30,8 @@ def check_OIDC(token):
         success, user_info = OpenIDClient.get_user_info_request(token)
         if not success:
             return None
+    except HTTPException:
+        raise
     except Exception:
         logger.exception("Error checking OIDC token")
         return None

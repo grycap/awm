@@ -2,28 +2,25 @@
 
 ## Overview
 
+Implements EOSC Application Workflow Management API.
 
 ## Requirements
+
 Python 3.5.2+
 
 ## Usage
+
 To run the server, please execute the following from the root directory:
 
-```
+```bash
 pip3 install -r requirements.txt
 python3 -m awm
 ```
 
 and open your browser to here:
 
-```
+```bash
 http://localhost:8080/
-```
-
-To launch the integration tests, use tox:
-```
-sudo pip install tox
-tox
 ```
 
 ## Running with Docker
