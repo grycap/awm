@@ -173,7 +173,8 @@ def get_allocation(request: Request,
     if allocation_info is None:
         return return_error("Allocation not found", status_code=404)
 
-    return Response(content=allocation_info.model_dump_json(exclude_unset=True, by_alias=True), status_code=200, media_type="application/json")
+    return Response(content=allocation_info.model_dump_json(exclude_unset=True, by_alias=True),
+                    status_code=200, media_type="application/json")
 
 
 def _check_allocation_in_use(allocation_id: str, user_info: dict, request: Request) -> Response:

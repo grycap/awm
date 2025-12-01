@@ -28,6 +28,7 @@ class DeploymentInfo(BaseModel):
                     "configured",
                     "unconfigured",
                     "deleting"]
-    self_: HttpUrl | None = Field(None, alias="self", description="Endpoint that returns the details of this tool blueprint")
+    self_: HttpUrl | None = Field(None, alias="self",
+                                  description="Endpoint that returns the details of this tool blueprint")
 
     model_config = {"populate_by_name": True}

@@ -17,7 +17,9 @@ REQUIRES = [
     "pydantic==2.7.1",
     "pydantic[email]==2.2.0",
     "python-dotenv",
-    "im-client >= 1.8.2"
+    "im-client >= 1.8.2",
+    "httpx==0.26.0",
+    "requests-cache==1.2.1"
 ]
 
 setup(
@@ -26,7 +28,7 @@ setup(
     description="EOSC Application Workflow Management API",
     author_email="",
     url="",
-    keywords=["Swagger", "EOSC Application Workflow Management API"],
+    keywords=["EOSC Application Workflow Management API"],
     install_requires=REQUIRES,
     packages=find_packages(),
     entry_points={
