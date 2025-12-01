@@ -26,8 +26,11 @@ class EoscNodeEnvironment(BaseModel):
     provisionedOn: datetime = None
     expiresOn: datetime = None
     nodeName: str | None = Field(None, description="Name of the EOSC node where this environment was allocated")
-    nodeId: str = Field(..., description="URL to the interactive UI of the EOSC node where this environment was allocated")
-    awmApi: HttpUrl = Field(..., description="Base URL for the AWM API of the EOSC node where this environment was allocated, or null for environments private to the calling user that accessed via explicit credentials")
+    nodeId: str = Field(..., description=("URL to the interactive UI of the EOSC "
+                                          "node where this environment was allocated"))
+    awmApi: HttpUrl = Field(..., description=("Base URL for the AWM API of the EOSC node where this "
+                                              "environment was allocated, or null for environments "
+                                              "private to the calling user that accessed via explicit credentials"))
 
 
 class OpenStackEnvironment(BaseModel):
@@ -68,7 +71,8 @@ class AllocationId(BaseModel):
 
 class AllocationInfo(BaseModel):
     id: str = Field(..., description="Unique identifier for this allocation")
-    self_: HttpUrl | None = Field(None, alias="self", description="Endpoint that returns the details of this allocation")
+    self_: HttpUrl | None = Field(None, alias="self",
+                                  description="Endpoint that returns the details of this allocation")
     allocation: Allocation
 
     model_config = {"populate_by_name": True}

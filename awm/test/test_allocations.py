@@ -54,6 +54,7 @@ def requests_get_mock(mocker):
 def list_deployments_mock(mocker):
     return mocker.patch("awm.routers.deployments._list_deployments")
 
+
 @pytest.fixture
 def time_mock(mocker):
     return mocker.patch("time.time", return_value=1000)
@@ -250,8 +251,8 @@ def test_update_allocation(check_oidc_mock, list_deployments_mock, db_mock, clie
     response = client.put('/allocation/id1', headers=headers, json=payload)
     assert response.status_code == 200
     assert response.json() == {'id': 'id1',
-                               'allocation': {'host': 'http://k8s.io/', 
-                                              'kind': 'KubernetesEnvironment'}, 
+                               'allocation': {'host': 'http://k8s.io/',
+                                              'kind': 'KubernetesEnvironment'},
                                'self': 'http://testserver/allocation/id1'}
     db_mock.execute.assert_called_with(
         "update allocations set data = %s where id = %s",
