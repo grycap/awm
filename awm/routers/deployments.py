@@ -305,7 +305,7 @@ def deploy_workload(deployment: Deployment,
     # Get the Tool from the ID
     tool, status_code = awm.routers.tools.get_tool_from_repo(deployment.tool.id, deployment.tool.version, request)
     if status_code != 200:
-        return Response(tool, status=400, mimetype="application/json")
+        return Response(content=tool, status_code=400, media_type="application/json")
 
     # Get the allocation info from the Allocation
     allocation_info = awm.routers.allocations._get_allocation(deployment.allocation.id, user_info, request)
