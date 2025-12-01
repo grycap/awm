@@ -13,8 +13,11 @@ VERSION = __version__
 # http://pypi.python.org/pypi/setuptools
 
 REQUIRES = [
-    "connexion",
-    "swagger-ui-bundle>=0.0.2"
+    "fastapi==0.110.0",
+    "pydantic==2.7.1",
+    "pydantic[email]==2.2.0",
+    "python-dotenv",
+    "im-client >= 1.8.2"
 ]
 
 setup(
@@ -26,8 +29,6 @@ setup(
     keywords=["Swagger", "EOSC Application Workflow Management API"],
     install_requires=REQUIRES,
     packages=find_packages(),
-    package_data={'': ['swagger/swagger.yaml']},
-    include_package_data=True,
     entry_points={
         'console_scripts': ['awm=awm.__main__:main']},
     long_description="""\

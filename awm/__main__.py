@@ -1,19 +1,45 @@
 #!/usr/bin/env python3
-
-import connexion
-
-from awm import encoder
+from fastapi import FastAPI
+from awm.routers import deployments, allocations, tools, service
 
 
 def create_app():
-    app = connexion.App(__name__, specification_dir='./swagger/')
-    app.app.json_encoder = encoder.JSONEncoder
-    app.add_api('swagger.yaml', arguments={'title': 'EOSC Application Workflow Management API'}, pythonic_params=True)
+    app = FastAPI(
+        title="EOSC AWM API",
+        description="EOSC Application Workflow Management API",
+        version="0.1.46",
+        docs_url="/",
+    )
+
+    app.include_router(
+        deployments.router,
+        tags=["Deployments"]
+    )
+
+    app.include_router(
+        allocations.router,
+        tags=["Allocations"]
+    )
+
+    app.include_router(
+        tools.router,
+        tags=["Tools"]
+    )
+
+    app.include_router(
+        service.router,
+        tags=["Service"]
+    )
+
     return app
 
 
 def main():
-    create_app().run(port=8080)
+    import uvicorn
+    uvicorn.run(create_app(), host="127.0.0.1", port=8080)
+
+
+app = create_app()
 
 
 if __name__ == '__main__':

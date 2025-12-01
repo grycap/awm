@@ -1,14 +1,18 @@
 FROM python:3.12-alpine3.21
 
-RUN mkdir -p /usr/src/app
-WORKDIR /usr/src/app
+LABEL maintainer="Miguel Caballer <micafer1@upv.es>"
+LABEL version="1.0.0"
+LABEL description="Container image to run the AWM API service."
+
+RUN mkdir -p /app
+WORKDIR /app
 
 RUN pip3 install --no-cache-dir gunicorn==23.0.0
 
-COPY requirements.txt /usr/src/app/
+COPY requirements.txt /app/
 RUN pip3 install --no-cache-dir -r requirements.txt
 
-COPY . /usr/src/app
+COPY . /app
 
 EXPOSE 8080
 ENV WORKERS=4
