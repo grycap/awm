@@ -155,7 +155,7 @@ def test_list_tools_remote(
 
 
 def test_get_tool(client, check_oidc_mock, repo_mock, headers):
-    repo_response = repo_mock.get_by_path.return_value = MagicMock()
+    repo_response = repo_mock.get.return_value = MagicMock()
     repo_response.status_code = 200
     repo_response.json.return_value = {
         "sha": "version",
@@ -179,9 +179,10 @@ def test_get_tool(client, check_oidc_mock, repo_mock, headers):
     }
 
     assert response.json() == expected
+    repo_mock.get.assert_called_once_with("toolid", 'latest')
 
     # Query con version
-    repo_mock.get_by_sha.return_value = repo_response
     response = client.get("/tool/toolid?version=version", headers=headers)
     assert response.status_code == 200
     assert response.json() == expected
+    assert repo_mock.get.call_args_list[1][0] == ("toolid", "version")

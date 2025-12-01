@@ -31,10 +31,7 @@ class Repository():
     def list(self):
         raise NotImplementedError
 
-    def get(self, element):
-        raise NotImplementedError
-
-    def get_by_path(self, path):
+    def get(self, element, version=None):
         raise NotImplementedError
 
     @staticmethod
@@ -46,6 +43,9 @@ class Repository():
 
 
 class GitHubRepository(Repository):
+
+    API_URL = "https://api.github.com"
+    RAW_URL = "https://raw.githubusercontent.com"
 
     def _getRepoDetails(self):
         url = urlparse(self.repository_url)
@@ -65,26 +65,29 @@ class GitHubRepository(Repository):
 
     def list(self):
         owner, repo, branch, path = self._getRepoDetails()
-        url = "https://api.github.com/repos/%s/%s/git/trees/%s?recursive=1" % (owner, repo, branch)
+        url = "%s/repos/%s/%s/git/trees/%s?recursive=1" % (self.API_URL, owner, repo, branch)
         response = self.cache_session.get(url)
         response.raise_for_status()
         res = [elem for elem in response.json()["tree"] if elem["type"] == "blob" and elem["path"].startswith(path)]
         return dict(zip([elem['path'][len(path) + 1:] for elem in res], res))
 
-    def get(self, element):
-        return self.get_by_path(element['path']).text
+    def get(self, element, version=None):
+        if version and version != "latest":
+            return self.get_by_sha(version)
+        else:
+            return self.get_by_path(element['path'])
 
     def get_by_path(self, path, details=False):
         owner, repo, branch, _ = self._getRepoDetails()
         if details:
-            url = "https://api.github.com/repos/%s/%s/contents/%s?ref=%s" % (owner, repo, path, branch)
+            url = "%s/repos/%s/%s/contents/%s?ref=%s" % (self.API_URL, owner, repo, path, branch)
         else:
-            url = "https://raw.githubusercontent.com/%s/%s/%s/%s" % (owner, repo, branch, path)
+            url = "%s/%s/%s/%s/%s" % (self.RAW_URL, owner, repo, branch, path)
         response = self.cache_session.get(url)
         return response
 
     def get_by_sha(self, sha):
         owner, repo, _, _ = self._getRepoDetails()
-        url = 'https://api.github.com/repos/%s/%s/git/blobs/%s' % (owner, repo, sha)
+        url = '%s/repos/%s/%s/git/blobs/%s' % (self.API_URL, owner, repo, sha)
         response = self.cache_session.get(url)
         return response
