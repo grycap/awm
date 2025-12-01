@@ -17,7 +17,7 @@ python3 -m awm
 and open your browser to here:
 
 ```
-http://localhost:8080/docs/
+http://localhost:8080/
 ```
 
 To launch the integration tests, use tox:
