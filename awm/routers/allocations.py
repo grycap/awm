@@ -80,15 +80,15 @@ def list_allocations(
         _init_table(db)
         if db.db_type == DataBase.MONGO:
             res = db.find("allocations", filt={"owner": user_info['sub']},
-                          projection={"data": True}, sort=[('created', -1)])
+                          projection={"data": True, "id": True}, sort=[('created', -1)])
             for count, elem in enumerate(res):
                 if from_ > count:
                     continue
                 allocation_data = elem['data']
-                allocation = Allocation.model_validate_json(allocation_data)
+                allocation = Allocation.model_validate(allocation_data)
                 allocation_info = AllocationInfo(
                     id=elem['id'],
-                    self_=f"{request.url_root.rstrip('/')}/allocation/{elem['id']}",
+                    self_=str(request.url_for("get_allocation", allocation_id=elem['id'])),
                     allocation=allocation
                 )
                 allocations.append(allocation_info)

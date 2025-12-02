@@ -13,10 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import pytest
 from unittest.mock import MagicMock
 from fastapi.testclient import TestClient
 from awm.__main__ import create_app
+from awm.utils.db import DataBase
 
 
 @pytest.fixture
@@ -29,7 +31,10 @@ def db_mock(mocker):
     """Mock genérico para DataBase, retornando una instancia configurable."""
     instance = MagicMock()
     instance.connect.return_value = True
-    mocker.patch("awm.routers.deployments.DataBase", return_value=instance)
+    instance.db_type = DataBase.SQLITE
+    db = mocker.patch("awm.routers.deployments.DataBase", return_value=instance)
+    db.MONGO = DataBase.MONGO
+    db.SQLITE = DataBase.SQLITE
     return instance
 
 
@@ -90,6 +95,25 @@ def test_list_deployments(client, db_mock, check_oidc_mock):
     db_mock.select.assert_any_call(
         "SELECT count(id) from deployments WHERE owner = %s",
         ("test-user",)
+    )
+
+
+def test_list_deployments_mongo(client, db_mock, check_oidc_mock):
+    db_mock.db_type = DataBase.MONGO
+    db_mock.find.return_value = [{"data": json.loads(_get_deployment_info())}]
+
+    response = client.get("/deployments",
+                          headers={"Authorization": "Bearer token"})
+
+    assert response.status_code == 200
+    assert response.json()["count"] == 1
+    assert response.json()["elements"][0]["id"] == "dep_id"
+
+    db_mock.find.assert_called_with(
+        "deployments",
+        filt={"owner": "test-user"},
+        projection={"data": True},
+        sort=[("created", -1)]
     )
 
 
