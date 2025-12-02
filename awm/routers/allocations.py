@@ -74,10 +74,6 @@ def list_allocations(
     all_nodes: bool = Query(False, alias="allNodes"),
     user_info=Depends(authenticate)
 ):
-
-    if from_ < 0 or limit < 1:
-        return return_error("Invalid 'from' or 'limit' parameter", status_code=400)
-
     allocations = []
     db = DataBase(DB_URL)
     if db.connect():

@@ -53,15 +53,3 @@ packages = ["awm"]
 
 [tool.setuptools.package-data]
 awm = ["py.typed"]
-
-[tool.pytest.ini_options]
-testpaths = ["awm/test"]
-python_files = ["test_*.py"]
-addopts = "--cov=awm --cov-report=html --cov-report=term-missing"
-
-[tool.coverage.run]
-source = ["awm"]
-omit = [
-    "*/tests/*",
-    "*/test_*.py",
-]

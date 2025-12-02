@@ -51,10 +51,10 @@ class EoscNodeEnvironment(BaseModel):
 class OpenStackEnvironment(BaseModel):
     """Credentials for OpenStack"""
     kind: Literal['OpenStackEnvironment'] = 'OpenStackEnvironment'
-    userName: str = None
-    domain: str = None
+    userName: str
+    domain: str
     domainId: str = None
-    tenant: str = None
+    tenant: str
     tenantId: str = None
     region: str = None
     host: HttpUrl
@@ -69,7 +69,9 @@ class KubernetesEnvironment(BaseModel):
 
 
 AllocationUnion = Annotated[
-    Union[EoscNodeEnvironment, OpenStackEnvironment, KubernetesEnvironment],
+    Union[EoscNodeEnvironment,
+          OpenStackEnvironment,
+          KubernetesEnvironment],
     Field(discriminator='kind')
 ]
 

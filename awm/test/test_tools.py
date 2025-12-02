@@ -20,6 +20,7 @@ from unittest.mock import patch, MagicMock
 from awm.__main__ import create_app
 from pydantic import HttpUrl
 from awm.utils.node_registry import EOSCNode
+from awm.routers.tools import Repository, AWM_TOOLS_REPO
 
 
 @pytest.fixture
@@ -46,7 +47,8 @@ def check_oidc_mock():
 
 @pytest.fixture
 def repo_mock(mocker):
-    repo = mocker.MagicMock()
+    repo = Repository.create(AWM_TOOLS_REPO)
+    repo.cache_session = MagicMock(["get"])
     mocker.patch("awm.routers.tools.Repository.create", return_value=repo)
     return repo
 
@@ -62,8 +64,12 @@ def requests_get_mock(mocker):
 
 
 def test_list_tools(client, check_oidc_mock, repo_mock, headers):
-    repo_mock.list.return_value = {"elem": {"path": "path", "sha": "version"}}
-    repo_mock.get.return_value = "description: DESC\nmetadata:\n  template_name: NAME"
+    repo_mock.cache_session.get.side_effect = [
+        MagicMock(status_code=200, json=MagicMock(return_value={
+            "tree": [{"type": "blob", "path": "templates/tosca.yaml", "sha": "version"}]
+        })),
+        MagicMock(status_code=200, text="description: DESC\nmetadata:\n  template_name: NAME")
+    ]
 
     response = client.get("/tools", headers=headers)
     assert response.status_code == 200
@@ -74,9 +80,9 @@ def test_list_tools(client, check_oidc_mock, repo_mock, headers):
             "blueprint": "description: DESC\nmetadata:\n  template_name: NAME",
             "blueprintType": "tosca",
             "description": "DESC",
-            "id": "path",
+            "id": "templates@tosca.yaml",
             "name": "NAME",
-            "self": "http://testserver/tool/path?version=version",
+            "self": "http://testserver/tool/templates@tosca.yaml?version=version",
             "type": "vm",
             "version": "version",
         }],
@@ -91,8 +97,17 @@ def test_list_tools_remote(
     client, mocker, check_oidc_mock, repo_mock, list_nodes_mock, requests_get_mock, headers
 ):
     blueprint = "description: DESC\nmetadata:\n  template_name: NAME"
-    repo_mock.list.return_value = {"elem": {"path": "path", "sha": "version"}}
-    repo_mock.get.return_value = blueprint
+
+    mock_list = MagicMock(status_code=200, json=MagicMock(return_value={
+            "tree": [{"type": "blob", "path": "templates/tosca.yaml", "sha": "version"}]
+        }))
+    mock_get = MagicMock(status_code=200, text=blueprint)
+    repo_mock.cache_session.get.side_effect = [
+        mock_list,
+        mock_get,
+        mock_list,
+        mock_list,
+    ]
 
     node1 = EOSCNode(awmAPI=HttpUrl("http://server1.com"), nodeId="n1")
     node2 = EOSCNode(awmAPI=HttpUrl("http://server2.com"), nodeId="n2")
@@ -169,14 +184,13 @@ def test_list_tools_remote(
 
 
 def test_get_tool(client, check_oidc_mock, repo_mock, headers):
-    repo_response = repo_mock.get.return_value = MagicMock()
-    repo_response.status_code = 200
-    repo_response.json.return_value = {
-        "sha": "version",
-        "content": base64.b64encode(
-            b"description: DESC\nmetadata:\n  template_name: NAME"
-        ).decode()
-    }
+    repo_mock.cache_session.get.return_value = MagicMock(status_code=200,
+                                                         json=MagicMock(return_value={
+                                                             "sha": "version",
+                                                             "content": base64.b64encode(
+                                                                 b"description: DESC\nmetadata:\n  template_name: NAME"
+                                                                 ).decode()
+                                                             }))
 
     response = client.get("/tool/toolid", headers=headers)
     assert response.status_code == 200
@@ -193,10 +207,12 @@ def test_get_tool(client, check_oidc_mock, repo_mock, headers):
     }
 
     assert response.json() == expected
-    repo_mock.get.assert_called_once_with("toolid", 'latest')
+    repo_mock.cache_session.get.assert_called_once_with(
+        'https://api.github.com/repos/grycap/tosca/contents/toolid?ref=eosc_lot1')
 
     # Query con version
     response = client.get("/tool/toolid?version=version", headers=headers)
     assert response.status_code == 200
     assert response.json() == expected
-    assert repo_mock.get.call_args_list[1][0] == ("toolid", "version")
+    assert repo_mock.cache_session.get.call_args_list[1][0] == (
+        'https://api.github.com/repos/grycap/tosca/git/blobs/version',)

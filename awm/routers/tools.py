@@ -46,7 +46,7 @@ def _get_tool_type(tosca: dict) -> str:
 def _get_tool_info_from_repo(elem: str, path: str, version: str, request: Request) -> ToolInfo:
     tosca = yaml.safe_load(elem)
     metadata = tosca.get("metadata", {})
-    tool_id = path.replace("/", "_")
+    tool_id = path.replace("/", "@")
     url = str(request.url_for("get_tool", tool_id=tool_id))
     if version and version != "latest":
         url += "?version=%s" % version
@@ -69,10 +69,10 @@ def _get_tool_info_from_repo(elem: str, path: str, version: str, request: Reques
 
 def get_tool_from_repo(tool_id: str, version: str, request: Request) -> Tuple[Union[ToolInfo, Error], int]:
     # tool_id was provided with underscores; convert back path
-    repo_tool_id = tool_id.replace("_", "/")
+    repo_tool_id = tool_id.replace("@", "/")
     try:
         repo = Repository.create(AWM_TOOLS_REPO)
-        response = repo.get(repo_tool_id, version)
+        response = repo.get(repo_tool_id, version, details=True)
     except Exception as e:
         awm.logger.error("Failed to get tool info: %s", e)
         msg = Error(id="503", description="Failed to get tool info")
@@ -133,7 +133,7 @@ def list_tools(
         if from_ > count - 1:
             continue
         try:
-            tool = _get_tool_info_from_repo(repo.get(elem), elem['path'], elem['sha'], request)
+            tool = _get_tool_info_from_repo(repo.get(elem['path']).text, elem['path'], elem['sha'], request)
             tools.append(tool)
             if len(tools) >= limit:
                 break
