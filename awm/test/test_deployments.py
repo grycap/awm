@@ -80,6 +80,7 @@ def ost_allocation_mock(mocker):
     ainfo.allocation.root.domain = "domain"
     return mocker.patch("awm.routers.allocations._get_allocation", return_value=ainfo)
 
+
 @pytest.fixture
 def list_nodes_mock(mocker):
     return mocker.patch("awm.utils.node_registry.EOSCNodeRegistry.list_nodes")
