@@ -15,10 +15,12 @@
 
 import json
 import pytest
+from pydantic import HttpUrl
 from unittest.mock import MagicMock
 from fastapi.testclient import TestClient
 from awm.__main__ import create_app
 from awm.utils.db import DataBase
+from awm.utils.node_registry import EOSCNode
 
 
 @pytest.fixture
@@ -65,12 +67,35 @@ def allocation_mock(mocker):
     return mocker.patch("awm.routers.allocations._get_allocation", return_value=ainfo)
 
 
-def _get_deployment_info():
-    return ('{"id": "dep_id", '
+@pytest.fixture
+def ost_allocation_mock(mocker):
+    """Mock para _get_allocation con un entorno estándar Kubernetes."""
+    ainfo = MagicMock()
+    ainfo.allocation.root = MagicMock()
+    ainfo.allocation.root.kind = "OpenStackEnvironment"
+    ainfo.allocation.root.host = "http://some.url/"
+    ainfo.allocation.root.username = "user"
+    ainfo.allocation.root.password = "pass"
+    ainfo.allocation.root.tenant = "tenant"
+    ainfo.allocation.root.domain = "domain"
+    return mocker.patch("awm.routers.allocations._get_allocation", return_value=ainfo)
+
+@pytest.fixture
+def list_nodes_mock(mocker):
+    return mocker.patch("awm.utils.node_registry.EOSCNodeRegistry.list_nodes")
+
+
+@pytest.fixture
+def requests_get_mock(mocker):
+    return mocker.patch("requests.get")
+
+
+def _get_deployment_info(dep_id="dep_id"):
+    return (f'{{"id": "{dep_id}", '
             '"deployment": {"tool": {"kind": "ToolId", "id": "toolid", '
             '"version": "latest", "infoLink": "http://some.url"}, '
             '"allocation": {"kind": "AllocationId", "id": "aid", "infoLink": "http://some.url"}}, '
-            '"status": "pending", "self_": "http://some.url/deployment/dep_id"}')
+            f'"status": "pending", "self_": "http://some.url/deployment/{dep_id}"}}')
 
 
 def test_list_deployments(client, db_mock, check_oidc_mock):
@@ -117,6 +142,80 @@ def test_list_deployments_mongo(client, db_mock, check_oidc_mock):
     )
 
 
+def test_list_deployments_remote(client, db_mock, check_oidc_mock, list_nodes_mock, requests_get_mock):
+    selects = [
+        [[_get_deployment_info()]],
+        [[1]],
+        [],
+        [[1]],
+        [],
+        [[1]],
+        [],
+        [[1]]
+    ]
+    db_mock.select.side_effect = selects
+
+    node1 = EOSCNode(awmAPI=HttpUrl("http://server1.com"), nodeId="n1")
+    node2 = EOSCNode(awmAPI=HttpUrl("http://server2.com"), nodeId="n2")
+    list_nodes_mock.return_value = [node1, node2]
+    resp1 = MagicMock()
+    resp1.status_code = 200
+    resp1.json.return_value = {'count': 1,
+                               'elements': [json.loads(_get_deployment_info('dep_id1'))],
+                               'from': 0,
+                               'limit': 100}
+    resp2 = MagicMock()
+    resp2.status_code = 200
+    resp2.json.return_value = {'count': 2,
+                               'elements': [json.loads(_get_deployment_info('dep_id1')),
+                                            json.loads(_get_deployment_info('dep_id2'))],
+                               'from': 0,
+                               'limit': 100}
+
+    resp3 = MagicMock()
+    resp3.status_code = 200
+    resp3.json.return_value = {'count': 2,
+                               'elements': [json.loads(_get_deployment_info('dep_id1'))],
+                               'from': 0,
+                               'limit': 100}
+    requests_get_mock.side_effect = [resp1, resp2, resp1, resp1, resp1, resp2, resp1, resp3]
+
+    headers = {"Authorization": "Bearer you-very-secret-token"}
+    response = client.get("/deployments?allNodes=true", headers=headers)
+    assert response.status_code == 200
+    assert response.json()["count"] == 4
+    assert len(response.json()["elements"]) == 4
+    requests_get_mock.assert_any_call('http://server1.com/deployments?from0&limit=99',
+                                      headers={'Authorization': 'Bearer astoken'}, timeout=30)
+    requests_get_mock.assert_any_call('http://server2.com/deployments?from0&limit=98',
+                                      headers={'Authorization': 'Bearer astoken'}, timeout=30)
+
+    response = client.get("/deployments?allNodes=true&from=1&limit=2", headers=headers)
+    assert response.status_code == 200
+    assert response.json()["count"] == 3
+    assert len(response.json()["elements"]) == 2
+    requests_get_mock.assert_any_call('http://server1.com/deployments?from0&limit=2',
+                                      headers={'Authorization': 'Bearer astoken'}, timeout=30)
+    requests_get_mock.assert_any_call('http://server2.com/deployments?from0&limit=1',
+                                      headers={'Authorization': 'Bearer astoken'}, timeout=30)
+
+    response = client.get("/deployments?allNodes=true&from=3&limit=2", headers=headers)
+    assert response.status_code == 200
+    assert response.json()["count"] == 4
+    assert len(response.json()["elements"]) == 1
+
+    response = client.get("/deployments?allNodes=true&from=1&limit=2", headers=headers)
+    assert response.status_code == 200
+    assert response.json()["count"] == 4
+    assert len(response.json()["elements"]) == 2
+    requests_get_mock.assert_any_call('http://server1.com/deployments?from0&limit=2',
+                                      headers={'Authorization': 'Bearer astoken'}, timeout=30)
+    requests_get_mock.assert_any_call('http://server2.com/deployments?from0&limit=1',
+                                      headers={'Authorization': 'Bearer astoken'}, timeout=30)
+    assert str(response.json()["nextPage"]) == "http://testserver/deployments?allNodes=true&from=3&limit=2"
+    assert str(response.json()["prevPage"]) == "http://testserver/deployments?allNodes=true&from=0&limit=2"
+
+
 def test_get_deployment(client, db_mock, check_oidc_mock, im_mock, allocation_mock):
     db_mock.select.side_effect = [
         [[_get_deployment_info()]]
@@ -137,7 +236,7 @@ def test_get_deployment(client, db_mock, check_oidc_mock, im_mock, allocation_mo
     )
 
 
-def test_delete_deployment(client, db_mock, check_oidc_mock, im_mock, allocation_mock):
+def test_delete_deployment(client, db_mock, check_oidc_mock, im_mock, ost_allocation_mock):
     db_mock.select.side_effect = [
         [[_get_deployment_info()]]
     ]
