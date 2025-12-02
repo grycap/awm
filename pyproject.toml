@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=65.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "awm"
+version = "1.0.0"
+description = "EOSC Application Workflow Management API"
+readme = "README.md"
+requires-python = ">=3.8"
+keywords = ["EOSC", "Application", "Workflow", "Management", "API"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Web Environment",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Software Development :: Libraries",
+]
+
+dependencies = [
+    "fastapi==0.110.0",
+    "pydantic==2.7.1",
+    "pydantic[email]==2.7.1",
+    "python-dotenv==1.2.1",
+    "im-client>=1.8.2",
+    "uvicorn[standard]==0.38.0",
+    "requests-cache==1.2.1",
+    "httpx==0.26.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "flask_testing==0.8.0",
+    "coverage>=4.0.3",
+    "nose>=1.3.7",
+    "tox==3.20.1",
+    "pytest-mock",
+    "pytest-cov",
+]
+
+[project.scripts]
+awm = "awm.__main__:main"
+
+[tool.setuptools]
+packages = ["awm"]
+
+[tool.setuptools.package-data]
+awm = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["awm/test"]
+python_files = ["test_*.py"]
+addopts = "--cov=awm --cov-report=html --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["awm"]
+omit = [
+    "*/tests/*",
+    "*/test_*.py",
+]

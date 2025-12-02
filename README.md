@@ -8,6 +8,18 @@ Implements EOSC Application Workflow Management API.
 
 Python 3.5.2+
 
+## Configuration
+
+Set this environment variables to configure the AWM service:
+
+```bash
+LOG_LEVEL=info
+DB_URL=file:///tmp/awm.db
+IM_URL=http://localhost:8800
+```
+
+Or you can set an `.env` file as the `.env.example` provided.
+
 ## Usage
 
 To run the server, please execute the following from the root directory:
