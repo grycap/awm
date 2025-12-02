@@ -20,6 +20,7 @@ from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock
 from awm.__main__ import create_app
 from awm.utils.node_registry import EOSCNode
+from awm.utils.db import DataBase
 
 
 @pytest.fixture
@@ -50,7 +51,10 @@ def db_mock(mocker):
     """Mock genérico para DataBase, retornando una instancia configurable."""
     instance = MagicMock()
     instance.connect.return_value = True
-    mocker.patch("awm.routers.allocations.DataBase", return_value=instance)
+    instance.db_type = DataBase.SQLITE
+    db = mocker.patch("awm.routers.allocations.DataBase", return_value=instance)
+    db.MONGO = DataBase.MONGO
+    db.SQLITE = DataBase.SQLITE
     return instance
 
 
@@ -83,9 +87,54 @@ def _get_allocation_info():
     return '{"kind": "KubernetesEnvironment", "host": "http://some.url/"}'
 
 
-def test_list_allocations(check_oidc_mock, client, headers):
+def test_list_allocations(check_oidc_mock, client, db_mock, headers):
+    selects = [
+        [['id1', '{"kind": "KubernetesEnvironment","host": "http://k8s.io"}']],
+        [[1]],
+    ]
+    db_mock.select.side_effect = selects
     response = client.get('/allocations/', headers=headers)
     assert response.status_code == 200
+    assert response.json() == {'count': 1,
+                               'elements': [{'allocation': {'host': 'http://k8s.io/',
+                                                            'kind': 'KubernetesEnvironment'},
+                                             'id': 'id1',
+                                             'self': 'http://testserver/allocation/id1'}],
+                               'from': 0,
+                               'limit': 100}
+
+    db_mock.select.assert_any_call(
+        "SELECT id, data FROM allocations WHERE owner = %s order by created LIMIT %s OFFSET %s",
+        ("user123", 100, 0)
+    )
+
+    db_mock.select.assert_any_call(
+        "SELECT count(id) from allocations WHERE owner = %s",
+        ("user123",)
+    )
+
+
+def test_list_allocations_mongo(check_oidc_mock, client, db_mock, headers):
+    db_mock.db_type = DataBase.MONGO
+    db_mock.find.return_value = [{"data": {"kind": "KubernetesEnvironment",
+                                           "host": "http://k8s.io"},
+                                  "id": "id1"}]
+    response = client.get('/allocations/', headers=headers)
+    assert response.status_code == 200
+    assert response.json() == {'count': 1,
+                               'elements': [{'allocation': {'host': 'http://k8s.io/',
+                                                            'kind': 'KubernetesEnvironment'},
+                                             'id': 'id1',
+                                             'self': 'http://testserver/allocation/id1'}],
+                               'from': 0,
+                               'limit': 100}
+
+    db_mock.find.assert_called_with(
+        "allocations",
+        filt={"owner": "user123"},
+        projection={"data": True, "id": True},
+        sort=[("created", -1)]
+    )
 
 
 def test_list_allocations_remote(

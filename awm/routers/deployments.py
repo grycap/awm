@@ -153,7 +153,7 @@ def _list_deployments(from_: int = 0, limit: int = 100,
                     continue
                 deployment_data = elem['data']
                 try:
-                    deployment_info = DeploymentInfo.model_validate_json(deployment_data)
+                    deployment_info = DeploymentInfo.model_validate(deployment_data)
                 except Exception as ex:
                     awm.logger.error("Failed to parse deployment info from database: %s", str(ex))
                     continue
