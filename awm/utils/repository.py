@@ -66,11 +66,11 @@ class GitHubRepository(Repository):
         res = [elem for elem in response.json()["tree"] if elem["type"] == "blob" and elem["path"].startswith(path)]
         return dict(zip([elem['path'][len(path) + 1:] for elem in res], res))
 
-    def get(self, element, version=None):
+    def get(self, element_path, version=None, details=False):
         if version and version != "latest":
-            return self.get_by_sha(version)
+            return self.get_by_sha(element_path, version, details)
         else:
-            return self.get_by_path(element['path'])
+            return self.get_by_path(element_path, details)
 
     def get_by_path(self, path, details=False):
         owner, repo, branch, _ = self._getRepoDetails()
@@ -79,10 +79,15 @@ class GitHubRepository(Repository):
         else:
             url = "%s/%s/%s/%s/%s" % (self.RAW_URL, owner, repo, branch, path)
         response = self.cache_session.get(url)
+        response.raise_for_status()
         return response
 
-    def get_by_sha(self, sha):
+    def get_by_sha(self, element_path, sha, details=False):
         owner, repo, _, _ = self._getRepoDetails()
-        url = '%s/repos/%s/%s/git/blobs/%s' % (self.API_URL, owner, repo, sha)
+        if details:
+            url = '%s/repos/%s/%s/git/blobs/%s' % (self.API_URL, owner, repo, sha)
+        else:
+            url = '%s/repos/%s/%s/%s/%s' % (self.RAW_URL, owner, repo, sha, element_path)
         response = self.cache_session.get(url)
+        response.raise_for_status()
         return response

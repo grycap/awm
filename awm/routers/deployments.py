@@ -56,10 +56,7 @@ def _init_table(db: DataBase) -> bool:
 def _get_im_auth_header(token: str, allocation: AllocationUnion = None) -> dict:
     auth_data = [{"type": "InfrastructureManager", "token": token}]
     if allocation:
-        if allocation.kind == "EoscNodeEnvironment":
-            # @TODO: Implement deployment to EOSC
-            pass
-        elif allocation.kind == "OpenStackEnvironment":
+        if allocation.kind == "OpenStackEnvironment":
             ost_auth_data = {"id": "ost", "type": "OpenStack", "auth_version": "3.x_oidc_access_token"}
             ost_auth_data["username"] = allocation.userName
             ost_auth_data["password"] = token
@@ -67,13 +64,19 @@ def _get_im_auth_header(token: str, allocation: AllocationUnion = None) -> dict:
             ost_auth_data["host"] = str(allocation.host)
             ost_auth_data["domain"] = allocation.domain
             if allocation.region:
-                ost_auth_data["region"] = allocation.region
-            # @TODO: Add all the other parameters
+                ost_auth_data["service_region"] = allocation.region
+            if allocation.domainId:
+                ost_auth_data["tenant_domain_id"] = allocation.domainId
+            if allocation.tenantId:
+                ost_auth_data["tenant_id"] = allocation.tenantId
+            if allocation.apiVersion:
+                ost_auth_data["api_version"] = allocation.apiVersion
             auth_data.append(ost_auth_data)
         elif allocation.kind == "KubernetesEnvironment":
             k8s_auth_data = {"type": "kubernetes", "token": token}
             k8s_auth_data["host"] = str(allocation.host)
             k8s_auth_data["password"] = token
+            auth_data.append(k8s_auth_data)
         else:
             raise ValueError("Allocation kind not supported")
     return auth_data
@@ -113,13 +116,16 @@ def _get_deployment(deployment_id: str, user_info: dict, request: Request,
                     if not allocation_info:
                         return "Invalid AllocationId.", 400
 
-                    auth_data = _get_im_auth_header(user_token, allocation_info.allocation.root)
-                    client = IMClient.init_client(IM_URL, auth_data)
-                    success, state_info = client.get_infra_property(deployment_id, "state")
-                    if not success:
-                        msg = Error(description=state_info)
-                        return msg, 400
-                    dep_info.status = state_info['state']
+                    if allocation_info.allocation.root.kind == "EoscNodeEnvironment":
+                        raise NotImplementedError("EOSCNodeEnvironment support not implemented yet")
+                    else:
+                        auth_data = _get_im_auth_header(user_token, allocation_info.allocation.root)
+                        client = IMClient.init_client(IM_URL, auth_data)
+                        success, state_info = client.get_infra_property(deployment_id, "state")
+                        if not success:
+                            msg = Error(description=state_info)
+                            return msg, 400
+                        dep_info.status = state_info['state']
             except Exception as ex:
                 msg = Error(id="400", description=str(ex))
                 return msg, 400
@@ -273,12 +279,15 @@ def delete_deployment(deployment_id,
         return return_error("Invalid AllocationId.", status_code=400)
     allocation = allocation_info.allocation
 
-    auth_data = _get_im_auth_header(user_info['token'], allocation.root)
-    client = IMClient.init_client(IM_URL, auth_data)
-    success, msg = client.destroy(deployment_id)
+    if allocation_info.allocation.root.kind == "EoscNodeEnvironment":
+        raise NotImplementedError("EOSCNodeEnvironment support not implemented yet")
+    else:
+        auth_data = _get_im_auth_header(user_info['token'], allocation.root)
+        client = IMClient.init_client(IM_URL, auth_data)
+        success, msg = client.destroy(deployment_id)
 
-    if not success:
-        return return_error(msg, 400)
+        if not success:
+            return return_error(msg, 400)
 
     db = DataBase(DB_URL)
     if db.connect():
@@ -331,13 +340,16 @@ def deploy_workload(deployment: Deployment,
         return return_error("Invalid AllocationId.", status_code=400)
     allocation = allocation_info.allocation
 
-    auth_data = _get_im_auth_header(user_info['token'], allocation.root)
+    if allocation_info.allocation.root.kind == "EoscNodeEnvironment":
+        raise NotImplementedError("EOSCNodeEnvironment support not implemented yet")
+    else:
+        auth_data = _get_im_auth_header(user_info['token'], allocation.root)
 
-    # Create the infrastructure in the IM
-    client = IMClient.init_client(IM_URL, auth_data)
-    success, deployment_id = client.create(tool.blueprint, "yaml", True)
-    if not success:
-        return_error(deployment_id, 400)
+        # Create the infrastructure in the IM
+        client = IMClient.init_client(IM_URL, auth_data)
+        success, deployment_id = client.create(tool.blueprint, "yaml", True)
+        if not success:
+            return_error(deployment_id, 400)
 
     db = DataBase(DB_URL)
     if db.connect():
