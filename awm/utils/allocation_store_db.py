@@ -81,9 +81,11 @@ class AllocationStoreDB(AllocationStore):
     def get_allocation(self, allocation_id: str, user_info: dict) -> dict:
         if self.db.connect():
             if self.db.db_type == DataBase.MONGO:
-                res = self.db.find("allocations", {"id": allocation_id, "owner": user_info['sub']}, {"id": True, "data": True})
+                res = self.db.find("allocations", {"id": allocation_id, "owner": user_info['sub']},
+                                   {"id": True, "data": True})
             else:
-                res = self.db.select("SELECT id, data FROM allocations WHERE id = %s and owner = %s", (allocation_id, user_info['sub']))
+                res = self.db.select("SELECT id, data FROM allocations WHERE id = %s and owner = %s",
+                                     (allocation_id, user_info['sub']))
             self.db.close()
             if res:
                 if self.db.db_type == DataBase.MONGO:

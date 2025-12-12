@@ -99,8 +99,8 @@ def test_list_tools_remote(
     blueprint = "description: DESC\nmetadata:\n  template_name: NAME"
 
     mock_list = MagicMock(status_code=200, json=MagicMock(return_value={
-            "tree": [{"type": "blob", "path": "templates/tosca.yaml", "sha": "version"}]
-        }))
+        "tree": [{"type": "blob", "path": "templates/tosca.yaml", "sha": "version"}]
+    }))
     mock_get = MagicMock(status_code=200, text=blueprint)
     repo_mock.cache_session.get.side_effect = [
         mock_list,
@@ -189,8 +189,8 @@ def test_get_tool(client, check_oidc_mock, repo_mock, headers):
                                                              "sha": "version",
                                                              "content": base64.b64encode(
                                                                  b"description: DESC\nmetadata:\n  template_name: NAME"
-                                                                 ).decode()
-                                                             }))
+                                                             ).decode()
+                                                         }))
 
     response = client.get("/tool/toolid", headers=headers)
     assert response.status_code == 200
