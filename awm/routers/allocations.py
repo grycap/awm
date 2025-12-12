@@ -14,8 +14,6 @@
 # limitations under the License.
 
 import os
-import uuid
-import time
 import awm
 import json
 from fastapi import APIRouter, Query, Depends, Request, Response
@@ -24,30 +22,19 @@ from awm.models.allocation import AllocationInfo, Allocation, AllocationId
 from awm.models.page import PageOfAllocations
 from awm.models.error import Error
 from awm.models.success import Success
-from awm.utils.db import DataBase
 from awm.utils.node_registry import EOSCNodeRegistry
 from . import return_error
 
 
 router = APIRouter()
 DB_URL = os.getenv("DB_URL", "file:///tmp/awm.db")
+ALLOCATION_STORE = os.getenv("ALLOCATION_STORE", "db")
 
-
-def _init_table(db: DataBase) -> bool:
-    """Creates de database."""
-    if not db.table_exists("allocations"):
-        awm.logger.info("Creating allocations table")
-        if db.db_type == DataBase.MYSQL:
-            db.execute("CREATE TABLE allocations (id VARCHAR(255) PRIMARY KEY, data TEXT, "
-                       "owner VARCHAR(255), created TIMESTAMP)")
-        elif db.db_type == DataBase.SQLITE:
-            db.execute("CREATE TABLE allocations (id TEXT PRIMARY KEY, data TEXT, "
-                       "owner VARCHAR(255), created TIMESTAMP)")
-        elif db.db_type == DataBase.MONGO:
-            db.connection.create_collection("allocations")
-            db.connection["allocations"].create_index([("id", 1), ("owner", 1)], unique=True)
-        return True
-    return False
+if ALLOCATION_STORE == "db":
+    from awm.utils.allocation_store_db import AllocationStoreDB
+    allocation_store = AllocationStoreDB(DB_URL)
+else:
+    raise Exception("Currently no other allocation store is supported")
 
 
 # GET /allocations
@@ -74,85 +61,46 @@ def list_allocations(
     all_nodes: bool = Query(False, alias="allNodes"),
     user_info=Depends(authenticate)
 ):
-    allocations = []
-    db = DataBase(DB_URL)
-    if db.connect():
-        _init_table(db)
-        if db.db_type == DataBase.MONGO:
-            res = db.find("allocations", filt={"owner": user_info['sub']},
-                          projection={"data": True, "id": True}, sort=[('created', -1)])
-            for count, elem in enumerate(res):
-                if from_ > count:
-                    continue
-                allocation_data = elem['data']
-                allocation = Allocation.model_validate(allocation_data)
-                allocation_info = AllocationInfo(
-                    id=elem['id'],
-                    self_=str(request.url_for("get_allocation", allocation_id=elem['id'])),
-                    allocation=allocation
-                )
-                allocations.append(allocation_info)
-                if len(allocations) >= limit:
-                    break
-            count = len(res)
-        else:
-            sql = "SELECT id, data FROM allocations WHERE owner = %s order by created LIMIT %s OFFSET %s"
-            res = db.select(sql, (user_info['sub'], limit, from_))
-            for elem in res:
-                allocation_id = elem[0]
-                allocation_data = elem[1]
-                allocation = Allocation.model_validate_json(allocation_data)
-                allocation_info = AllocationInfo(
-                    id=allocation_id,
-                    self_=str(request.url_for("get_allocation", allocation_id=allocation_id)),
-                    allocation=allocation
-                )
-                allocations.append(allocation_info)
-            res = db.select("SELECT count(id) from allocations WHERE owner = %s", (user_info['sub'],))
-            count = res[0][0] if res else 0
-        db.close()
-    else:
-        return return_error("Database connection failed", 503)
+    try:
+        count, allocations = allocation_store.list_allocations(user_info, from_, limit)
+    except Exception as ex:
+        return return_error(str(ex), 503)
+
+    res = []
+    for elem in allocations:
+        allocation_id = elem['id']
+        allocation_data = elem['data']
+        allocation = Allocation.model_validate(allocation_data)
+        allocation_info = AllocationInfo(
+            id=allocation_id,
+            self_=str(request.url_for("get_allocation", allocation_id=allocation_id)),
+            allocation=allocation
+        )
+        res.append(allocation_info)
 
     if all_nodes:
         remote_count, remote_tools = EOSCNodeRegistry.list_allocations(from_, limit, count, user_info)
-        allocations.extend(remote_tools)
+        res.extend(remote_tools)
         count += remote_count
 
-    page = PageOfAllocations(from_=from_, limit=limit, elements=allocations, count=count)
+    page = PageOfAllocations(from_=from_, limit=limit, elements=res, count=count)
     page.set_next_and_prev_pages(request, all_nodes)
     return Response(content=page.model_dump_json(exclude_unset=True, by_alias=True),
                     status_code=200, media_type="application/json")
 
 
 def _get_allocation(allocation_id: str, user_info: dict, request: Request) -> AllocationInfo:
-    allocation_info = None
-    user_id = user_info['sub']
-    db = DataBase(DB_URL)
-    if db.connect():
-        _init_table(db)
-        if db.db_type == DataBase.MONGO:
-            res = db.find("allocations", {"id": allocation_id, "owner": user_id}, {"id": True, "data": True})
-        else:
-            res = db.select("SELECT id, data FROM allocations WHERE id = %s and owner = %s", (allocation_id, user_id))
-        db.close()
-        if res:
-            if db.db_type == DataBase.MONGO:
-                allocation_id = res[0]["id"]
-                allocation_data = res[0]["data"]
-            else:
-                allocation_id = res[0][0]
-                allocation_data = res[0][1]
-            allocation = Allocation.model_validate_json(allocation_data)
-            allocation_info = AllocationInfo(
-                id=allocation_id,
-                self_=str(request.url_for("get_allocation", allocation_id=allocation_id)),
-                allocation=allocation
-            )
-    else:
-        awm.logger.error("Database connection failed")
-        return None
+    try:
+        allocation_data = allocation_store.get_allocation(allocation_id, user_info)
+    except Exception as ex:
+        return return_error(str(ex), 503)
 
+    allocation = Allocation.model_validate(allocation_data)
+    allocation_info = AllocationInfo(
+        id=allocation_id,
+        self_=str(request.url_for("get_allocation", allocation_id=allocation_id)),
+        allocation=allocation
+    )
     return allocation_info
 
 
@@ -228,11 +176,11 @@ def update_allocation(allocation_id,
     if response:
         return response
 
-    allocation_id = _create_allocation(allocation_info.allocation,
-                                       allocation_id=allocation_id,
-                                       user_info=user_info)
-    if not allocation_id:
-        return return_error("Database connection failed", 503)
+    data = allocation_info.allocation.model_dump_json(exclude_unset=True)
+    try:
+        allocation_store.replace_allocation(data, user_info, allocation_id)
+    except Exception as ex:
+        return return_error(str(ex), 503)
 
     allocation_info = _get_allocation(allocation_id, user_info, request)
     return Response(content=allocation_info.model_dump_json(exclude_unset=True, by_alias=True),
@@ -271,53 +219,15 @@ def delete_allocation(allocation_id,
     if response:
         return response
 
-    db = DataBase(DB_URL)
-    if db.connect():
-        _init_table(db)
-        if db.db_type == DataBase.MONGO:
-            db.delete("allocations", {"id": allocation_id})
-        else:
-            db.execute("DELETE FROM allocations WHERE id = %s", (allocation_id,))
-        db.close()
-    else:
-        return return_error("Database connection failed", 503)
+    try:
+        allocation_store.delete_allocation(allocation_id)
+    except Exception as ex:
+        return return_error(str(ex), 503)
 
     msg = Success(message="Deleted")
     return Response(content=msg.model_dump_json(exclude_unset=True),
                     status_code=200,
                     media_type="application/json")
-
-
-def _create_allocation(allocation: Allocation,
-                       allocation_id: str = None,
-                       user_info: dict = None):
-    db = DataBase(DB_URL)
-    if db.connect():
-        _init_table(db)
-        data = allocation.model_dump_json(exclude_unset=True, by_alias=True)
-        if db.db_type == DataBase.MONGO:
-            if allocation_id is None:  # new allocation
-                allocation_id = str(uuid.uuid4())
-                replace = {"id": allocation_id, "data": data,
-                           "owner": user_info['sub'],
-                           "created": time.time()}
-            else:  # update existing allocation
-                replace = {"id": allocation_id, "data": data,
-                           "owner": user_info['sub']}
-            db.replace("allocations", {"id": allocation_id}, replace)
-        else:
-            if allocation_id is None:  # new allocation
-                allocation_id = str(uuid.uuid4())
-                sql = "replace into allocations (id, data, owner, created) values (%s, %s, %s, %s)"
-                values = (allocation_id, data, user_info['sub'], time.time())
-            else:  # update existing allocation
-                sql = "update allocations set data = %s where id = %s"
-                values = (data, allocation_id)
-            db.execute(sql, values)
-        db.close()
-        return allocation_id
-    else:
-        return None
 
 
 # POST /allocations
@@ -341,9 +251,11 @@ def create_allocation(allocation: Allocation,
     """Record an environment of the user
     :rtype: AllocationId
     """
-    allocation_id = _create_allocation(allocation, allocation_id=None, user_info=user_info)
-    if not allocation_id:
-        return return_error("Database connection failed", 503)
+    data = allocation.model_dump_json(exclude_unset=True, by_alias=True)
+    try:
+        allocation_id = allocation_store.replace_allocation(data, user_info)
+    except Exception as ex:
+        return return_error(str(ex), 503)
 
     url = str(request.url_for("get_allocation", allocation_id=allocation_id))
     allocation_id_model = AllocationId(id=allocation_id, infoLink=url)

@@ -21,6 +21,7 @@ from unittest.mock import patch, MagicMock
 from awm.__main__ import create_app
 from awm.utils.node_registry import EOSCNode
 from awm.utils.db import DataBase
+import awm
 
 
 @pytest.fixture
@@ -47,14 +48,14 @@ def check_oidc_mock():
 
 
 @pytest.fixture
-def db_mock(mocker):
+def db_mock():
     """Mock genérico para DataBase, retornando una instancia configurable."""
     instance = MagicMock()
     instance.connect.return_value = True
     instance.db_type = DataBase.SQLITE
-    db = mocker.patch("awm.routers.allocations.DataBase", return_value=instance)
-    db.MONGO = DataBase.MONGO
-    db.SQLITE = DataBase.SQLITE
+    instance.MONGO = DataBase.MONGO
+    instance.SQLITE = DataBase.SQLITE
+    awm.routers.allocations.allocation_store.db = instance
     return instance
 
 
