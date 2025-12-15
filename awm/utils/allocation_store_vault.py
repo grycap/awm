@@ -37,7 +37,7 @@ class AllocationStoreVault(AllocationStore):
             self.mount_point = "/secrets"
             self.path = "users/{sub}/allocations"
         else:
-            self.mount_point = "credentials/"
+            self.mount_point = "allocations/"
             if mount_point:
                 self.mount_point = mount_point
             self.path = path
