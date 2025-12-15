@@ -369,6 +369,36 @@ def test_create_allocation_sql(check_oidc_mock, time_mock, uuid_mock, db_mock, c
     )
 
 
+@pytest.mark.parametrize("backend_type", ["mongo"], indirect=True)
+def test_create_allocation_mongo(check_oidc_mock, time_mock, uuid_mock, db_mock, client, headers, seed_allocations):
+    seed_allocations([])
+    payload = {
+        "kind": "KubernetesEnvironment",
+        "host": "http://k8s.io"
+    }
+    client.post('/allocations', headers=headers, json=payload)
+    db_mock.replace.assert_called_with(
+        "allocations", {"id": "new-id"}, {"id": "new-id", "data": {"kind": "KubernetesEnvironment",
+                                                                   "host": "http://k8s.io/"},
+                                          "owner": "user123", "created": 1000}
+    )
+
+
+@pytest.mark.parametrize("backend_type", ["vault"], indirect=True)
+def test_create_allocation_vault(check_oidc_mock, time_mock, uuid_mock, vault_mock, client, headers, requests_post_mock, seed_allocations):
+    seed_allocations([])
+    payload = {
+        "kind": "KubernetesEnvironment",
+        "host": "http://k8s.io"
+    }
+    client.post('/allocations', headers=headers, json=payload)
+    vault_mock.secrets.kv.v1.create_or_update_secret.assert_called_with(
+        'users/user123/allocations',
+        {'new-id': '{"kind": "KubernetesEnvironment", "host": "http://k8s.io/"}'},
+        mount_point='/secrets'
+    )
+
+
 def test_update_allocation(check_oidc_mock, list_deployments_mock, db_mock, client, headers, requests_post_mock, seed_allocations):
     seed_allocations([ALLOC_3, ALLOC_3, ALLOC_3])
 
