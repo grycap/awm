@@ -85,22 +85,26 @@ def uuid_mock(mocker):
 
 
 def _get_allocation_info():
-    return '{"kind": "KubernetesEnvironment", "host": "http://some.url/"}'
+    return '{"kind": "KubernetesEnvironment", "host": "http://k8s.io"}'
+
+
+def _allocation_data(aid="id1"):
+    return {'allocation': {'host': 'http://k8s.io/',
+                           'kind': 'KubernetesEnvironment'},
+            'id': aid,
+            'self': f'http://testserver/allocation/{aid}'}
 
 
 def test_list_allocations(check_oidc_mock, client, db_mock, headers):
     selects = [
-        [['id1', '{"kind": "KubernetesEnvironment","host": "http://k8s.io"}']],
+        [['id1', _get_allocation_info()]],
         [[1]],
     ]
     db_mock.select.side_effect = selects
     response = client.get('/allocations/', headers=headers)
     assert response.status_code == 200
     assert response.json() == {'count': 1,
-                               'elements': [{'allocation': {'host': 'http://k8s.io/',
-                                                            'kind': 'KubernetesEnvironment'},
-                                             'id': 'id1',
-                                             'self': 'http://testserver/allocation/id1'}],
+                               'elements': [_allocation_data()],
                                'from': 0,
                                'limit': 100}
 
@@ -123,10 +127,7 @@ def test_list_allocations_mongo(check_oidc_mock, client, db_mock, headers):
     response = client.get('/allocations/', headers=headers)
     assert response.status_code == 200
     assert response.json() == {'count': 1,
-                               'elements': [{'allocation': {'host': 'http://k8s.io/',
-                                                            'kind': 'KubernetesEnvironment'},
-                                             'id': 'id1',
-                                             'self': 'http://testserver/allocation/id1'}],
+                               'elements': [_allocation_data()],
                                'from': 0,
                                'limit': 100}
 
@@ -142,7 +143,7 @@ def test_list_allocations_remote(
     client, mocker, check_oidc_mock, db_mock, list_nodes_mock, requests_get_mock
 ):
     selects = [
-        [['id1', '{"kind": "KubernetesEnvironment","host": "http://k8s.io"}']],
+        [['id1', _get_allocation_info()]],
         [[1]],
         [],
         [[1]],
@@ -159,33 +160,21 @@ def test_list_allocations_remote(
     resp1 = MagicMock()
     resp1.status_code = 200
     resp1.json.return_value = {'count': 1,
-                               'elements': [{'allocation': {'host': 'http://k8s.io/',
-                                                            'kind': 'KubernetesEnvironment'},
-                                             'id': 'id1',
-                                             'self': 'http://localhost/awm/allocation/id1'}],
+                               'elements': [_allocation_data()],
                                'from': 0,
                                'limit': 100}
     resp2 = MagicMock()
     resp2.status_code = 200
     resp2.json.return_value = {'count': 2,
-                               'elements': [{'allocation': {'host': 'http://k8s.io/',
-                                                            'kind': 'KubernetesEnvironment'},
-                                             'id': 'id1',
-                                             'self': 'http://localhost/awm/allocation/id1'},
-                                            {'allocation': {'host': 'http://k8s2.io/',
-                                                            'kind': 'KubernetesEnvironment'},
-                                             'id': 'id2',
-                                             'self': 'http://localhost/awm/allocation/id2'}],
+                               'elements': [_allocation_data(),
+                                            _allocation_data('id2')],
                                'from': 0,
                                'limit': 100}
 
     resp3 = MagicMock()
     resp3.status_code = 200
     resp3.json.return_value = {'count': 2,
-                               'elements': [{'allocation': {'host': 'http://k8s.io/',
-                                                            'kind': 'KubernetesEnvironment'},
-                                             'id': 'id1',
-                                             'self': 'http://localhost/awm/allocation/id1'}],
+                               'elements': [_allocation_data()],
                                'from': 0,
                                'limit': 100}
     requests_get_mock.side_effect = [resp1, resp2, resp1, resp1, resp1, resp2, resp1, resp3]
@@ -240,8 +229,8 @@ def test_get_allocation(check_oidc_mock, db_mock, client, headers):
 def test_delete_allocation(check_oidc_mock, list_deployments_mock, db_mock, client, headers):
 
     selects = [
-        [['id1', '{"kind": "KubernetesEnvironment","host": "http://k8s.io"}']],
-        [['id1', '{"kind": "KubernetesEnvironment","host": "http://k8s.io"}']]
+        [['id1', _get_allocation_info()]],
+        [['id1', _get_allocation_info()]]
     ]
     db_mock.select.side_effect = selects
 
@@ -300,8 +289,8 @@ def test_create_allocation(check_oidc_mock, time_mock, uuid_mock, db_mock, clien
 
 def test_update_allocation(check_oidc_mock, list_deployments_mock, db_mock, client, headers):
     selects = [
-        [['id1', '{"kind": "KubernetesEnvironment","host": "http://k8s.io"}']],
-        [['id1', '{"kind": "KubernetesEnvironment","host": "http://k8s.io"}']]
+        [['id1', _get_allocation_info()]],
+        [['id1', _get_allocation_info()]]
     ]
     db_mock.select.side_effect = selects
 
@@ -314,10 +303,7 @@ def test_update_allocation(check_oidc_mock, list_deployments_mock, db_mock, clie
     }
     response = client.put('/allocation/id1', headers=headers, json=payload)
     assert response.status_code == 200
-    assert response.json() == {'id': 'id1',
-                               'allocation': {'host': 'http://k8s.io/',
-                                              'kind': 'KubernetesEnvironment'},
-                               'self': 'http://testserver/allocation/id1'}
+    assert response.json() == _allocation_data()
     db_mock.execute.assert_called_with(
         "update allocations set data = %s where id = %s",
         ('{"kind": "KubernetesEnvironment", "host": "http://k8s.io/"}', 'id1')

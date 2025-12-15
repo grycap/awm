@@ -29,6 +29,8 @@ class DBConnectionException(Exception):
 
 class AllocationStoreDB(AllocationStore):
 
+    DEFAULT_DB_URL = "file:///tmp/awm.db"
+
     def __init__(self, db_url):
         self.db = DataBase(db_url)
         if self.db.connect():

@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import hvac
+from hvac import Client
 import json
 import uuid
 import requests
@@ -60,7 +60,7 @@ class AllocationStoreVault(AllocationStore):
         vault_auth_token = deserialized_response["auth"]["client_token"]
         vault_entity_id = deserialized_response["auth"]["entity_id"]
 
-        client = hvac.Client(url=self.url, token=vault_auth_token, verify=self.ssl_verify)
+        client = Client(url=self.url, token=vault_auth_token, verify=self.ssl_verify)
         if not client.is_authenticated():
             raise Exception(f"Error authenticating against Vault with token: {vault_auth_token}")
 

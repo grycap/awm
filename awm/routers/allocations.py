@@ -30,8 +30,8 @@ router = APIRouter()
 ALLOCATION_STORE = os.getenv("ALLOCATION_STORE", "db")
 
 if ALLOCATION_STORE == "db":
-    DB_URL = os.getenv("DB_URL", "file:///tmp/awm.db")
     from awm.utils.allocation_store_db import AllocationStoreDB
+    DB_URL = os.getenv("DB_URL", AllocationStoreDB.DEFAULT_DB_URL)
     allocation_store = AllocationStoreDB(DB_URL)
 elif ALLOCATION_STORE == "vault":
     from awm.utils.allocation_store_vault import AllocationStoreVault
