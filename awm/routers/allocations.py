@@ -27,7 +27,7 @@ from . import return_error
 
 
 router = APIRouter()
-ALLOCATION_STORE = os.getenv("ALLOCATION_STORE", "db")
+ALLOCATION_STORE = os.getenv("ALLOCATION_STORE", "vault")
 
 if ALLOCATION_STORE == "db":
     from awm.utils.allocation_store_db import AllocationStoreDB
@@ -36,7 +36,8 @@ if ALLOCATION_STORE == "db":
 elif ALLOCATION_STORE == "vault":
     from awm.utils.allocation_store_vault import AllocationStoreVault
     VAULT_URL = os.getenv("VAULT_URL", AllocationStoreVault.DEFAULT_URL)
-    allocation_store = AllocationStoreVault(VAULT_URL)
+    ENCRYPT_KEY = os.getenv("ENCRYPT_KEY", AllocationStoreVault.DEFAULT_KEY)
+    allocation_store = AllocationStoreVault(VAULT_URL, key=ENCRYPT_KEY)
 else:
     raise Exception(f"Allocation store '{ALLOCATION_STORE}' is not supported")
 

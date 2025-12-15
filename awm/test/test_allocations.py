@@ -17,6 +17,7 @@ import pytest
 import json
 import uuid
 from pydantic import HttpUrl
+from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock
 from awm.__main__ import create_app
@@ -108,7 +109,7 @@ def uuid_mock(mocker):
 
 @pytest.fixture
 def allocation_payload():
-    return {"kind": "KubernetesEnvironment", "host": "http://k8s.io"}
+    return {"kind": "KubernetesEnvironment", "host": "http://k8s.io/"}
 
 
 def _allocation_data(aid="id1"):
@@ -118,7 +119,7 @@ def _allocation_data(aid="id1"):
             'self': f'http://testserver/allocation/{aid}'}
 
 
-@pytest.fixture(params=["db", "mongo", "vault"])
+@pytest.fixture(params=["db", "mongo", "vault", "enc_vault"])
 def backend_type(request):
     return request.param
 
@@ -168,12 +169,22 @@ def seed_allocations(backend_type, db_mock, vault_mock):
                 db_mock.find.side_effect = selects
             else:
                 db_mock.select.side_effect = selects
-        elif backend_type == "vault":
-            awm.routers.allocations.allocation_store = AllocationStoreVault(AllocationStoreVault.DEFAULT_URL)
+        elif backend_type in ["vault", "enc_vault"]:
+            if backend_type == "enc_vault":
+                awm.routers.allocations.allocation_store = AllocationStoreVault(AllocationStoreVault.DEFAULT_URL,
+                                                                                key=AllocationStoreVault.DEFAULT_KEY)
+            else:
+                awm.routers.allocations.allocation_store = AllocationStoreVault(AllocationStoreVault.DEFAULT_URL)
             res = []
             for allocations_elem in allocations_list:
                 allocations, total = allocations_elem
-                elems = {a["id"]: json.dumps(a["data"]) for a in allocations}
+                elems = {}
+                for a in allocations:
+                    data = json.dumps(a["data"])
+                    if backend_type == "enc_vault":
+                        key = Fernet(AllocationStoreVault.DEFAULT_KEY)
+                        data = key.encrypt(data.encode()).decode()
+                    elems[a["id"]] = data
                 if total and len(elems) < total:
                     elems[str(uuid.uuid4())] = allocations[0]["data"]
                 res.append({"data": elems})
@@ -304,6 +315,7 @@ def test_get_allocation(check_oidc_mock, db_mock, client, headers, requests_post
     assert response.status_code == 200
 
 
+@pytest.mark.parametrize("backend_type", ["db", "mongo", "vault"], indirect=True)
 def test_delete_allocation(check_oidc_mock, list_deployments_mock, client, headers,
                            requests_post_mock, seed_allocations):
     seed_allocations([ALLOC_1, ALLOC_1])
@@ -389,6 +401,18 @@ def test_create_allocation_vault(check_oidc_mock, time_mock, uuid_mock, vault_mo
     )
 
 
+@pytest.mark.parametrize("backend_type", ["enc_vault"], indirect=True)
+def test_create_allocation_enc_vault(check_oidc_mock, time_mock, uuid_mock, vault_mock, client, headers,
+                                     requests_post_mock, seed_allocations, allocation_payload):
+    seed_allocations([])
+    client.post('/allocations', headers=headers, json=allocation_payload)
+    value = vault_mock.secrets.kv.v1.create_or_update_secret.call_args_list[0][0][1]
+    key = Fernet(AllocationStoreVault.DEFAULT_KEY)
+    data = json.loads(key.decrypt(value['new-id'].encode()).decode())
+    assert data == {"kind": "KubernetesEnvironment", "host": "http://k8s.io/"}
+
+
+@pytest.mark.parametrize("backend_type", ["db", "mongo", "vault"], indirect=True)
 def test_update_allocation(check_oidc_mock, list_deployments_mock, db_mock, client, headers,
                            requests_post_mock, seed_allocations, allocation_payload):
     seed_allocations([ALLOC_3, ALLOC_3, ALLOC_3])
