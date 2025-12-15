@@ -106,8 +106,9 @@ def uuid_mock(mocker):
     return mocker.patch("uuid.uuid4", return_value="new-id")
 
 
-def _get_allocation_info():
-    return '{"kind": "KubernetesEnvironment", "host": "http://k8s.io"}'
+@pytest.fixture
+def allocation_payload():
+    return {"kind": "KubernetesEnvironment", "host": "http://k8s.io"}
 
 
 def _allocation_data(aid="id1"):
@@ -303,7 +304,8 @@ def test_get_allocation(check_oidc_mock, db_mock, client, headers, requests_post
     assert response.status_code == 200
 
 
-def test_delete_allocation(check_oidc_mock, list_deployments_mock, client, headers, requests_post_mock, seed_allocations):
+def test_delete_allocation(check_oidc_mock, list_deployments_mock, client, headers,
+                           requests_post_mock, seed_allocations):
     seed_allocations([ALLOC_1, ALLOC_1])
 
     response = client.delete('/allocation/id1', headers=headers)
@@ -344,25 +346,19 @@ def test_delete_allocation_sql(check_oidc_mock, list_deployments_mock, client, h
     db_mock.execute.assert_called_with("DELETE FROM allocations WHERE id = %s", ('id1',))
 
 
-def test_create_allocation(check_oidc_mock, uuid_mock, client, headers, requests_post_mock, seed_allocations):
+def test_create_allocation(check_oidc_mock, uuid_mock, client, headers, requests_post_mock,
+                           seed_allocations, allocation_payload):
     seed_allocations([])
-    payload = {
-        "kind": "KubernetesEnvironment",
-        "host": "http://k8s.io"
-    }
-    response = client.post('/allocations', headers=headers, json=payload)
+    response = client.post('/allocations', headers=headers, json=allocation_payload)
     assert response.status_code == 201
     assert response.json() == {'id': 'new-id', 'infoLink': 'http://testserver/allocation/new-id'}
 
 
 @pytest.mark.parametrize("backend_type", ["db"], indirect=True)
-def test_create_allocation_sql(check_oidc_mock, time_mock, uuid_mock, db_mock, client, headers, seed_allocations):
+def test_create_allocation_sql(check_oidc_mock, time_mock, uuid_mock, db_mock, client,
+                               headers, seed_allocations, allocation_payload):
     seed_allocations([])
-    payload = {
-        "kind": "KubernetesEnvironment",
-        "host": "http://k8s.io"
-    }
-    client.post('/allocations', headers=headers, json=payload)
+    client.post('/allocations', headers=headers, json=allocation_payload)
     db_mock.execute.assert_called_with(
         "replace into allocations (id, data, owner, created) values (%s, %s, %s, %s)",
         ('new-id', '{"kind": "KubernetesEnvironment", "host": "http://k8s.io/"}', 'user123', 1000)
@@ -370,13 +366,10 @@ def test_create_allocation_sql(check_oidc_mock, time_mock, uuid_mock, db_mock, c
 
 
 @pytest.mark.parametrize("backend_type", ["mongo"], indirect=True)
-def test_create_allocation_mongo(check_oidc_mock, time_mock, uuid_mock, db_mock, client, headers, seed_allocations):
+def test_create_allocation_mongo(check_oidc_mock, time_mock, uuid_mock, db_mock, client,
+                                 headers, seed_allocations, allocation_payload):
     seed_allocations([])
-    payload = {
-        "kind": "KubernetesEnvironment",
-        "host": "http://k8s.io"
-    }
-    client.post('/allocations', headers=headers, json=payload)
+    client.post('/allocations', headers=headers, json=allocation_payload)
     db_mock.replace.assert_called_with(
         "allocations", {"id": "new-id"}, {"id": "new-id", "data": {"kind": "KubernetesEnvironment",
                                                                    "host": "http://k8s.io/"},
@@ -385,13 +378,10 @@ def test_create_allocation_mongo(check_oidc_mock, time_mock, uuid_mock, db_mock,
 
 
 @pytest.mark.parametrize("backend_type", ["vault"], indirect=True)
-def test_create_allocation_vault(check_oidc_mock, time_mock, uuid_mock, vault_mock, client, headers, requests_post_mock, seed_allocations):
+def test_create_allocation_vault(check_oidc_mock, time_mock, uuid_mock, vault_mock, client, headers,
+                                 requests_post_mock, seed_allocations, allocation_payload):
     seed_allocations([])
-    payload = {
-        "kind": "KubernetesEnvironment",
-        "host": "http://k8s.io"
-    }
-    client.post('/allocations', headers=headers, json=payload)
+    client.post('/allocations', headers=headers, json=allocation_payload)
     vault_mock.secrets.kv.v1.create_or_update_secret.assert_called_with(
         'users/user123/allocations',
         {'new-id': '{"kind": "KubernetesEnvironment", "host": "http://k8s.io/"}'},
@@ -399,27 +389,21 @@ def test_create_allocation_vault(check_oidc_mock, time_mock, uuid_mock, vault_mo
     )
 
 
-def test_update_allocation(check_oidc_mock, list_deployments_mock, db_mock, client, headers, requests_post_mock, seed_allocations):
+def test_update_allocation(check_oidc_mock, list_deployments_mock, db_mock, client, headers,
+                           requests_post_mock, seed_allocations, allocation_payload):
     seed_allocations([ALLOC_3, ALLOC_3, ALLOC_3])
 
-    payload = {
-        "kind": "KubernetesEnvironment",
-        "host": "http://k8s.io"
-    }
-    response = client.put('/allocation/id1', headers=headers, json=payload)
+    response = client.put('/allocation/id1', headers=headers, json=allocation_payload)
     assert response.status_code == 200
     assert response.json() == _allocation_data()
 
 
 @pytest.mark.parametrize("backend_type", ["db"], indirect=True)
-def test_update_allocation_sql(check_oidc_mock, list_deployments_mock, db_mock, client, headers, seed_allocations):
+def test_update_allocation_sql(check_oidc_mock, list_deployments_mock, db_mock, client, headers,
+                               seed_allocations, allocation_payload):
     seed_allocations([ALLOC_3, ALLOC_3])
 
-    payload = {
-        "kind": "KubernetesEnvironment",
-        "host": "http://k8s.io"
-    }
-    client.put('/allocation/id1', headers=headers, json=payload)
+    client.put('/allocation/id1', headers=headers, json=allocation_payload)
 
     db_mock.execute.assert_called_with(
         "update allocations set data = %s where id = %s",
