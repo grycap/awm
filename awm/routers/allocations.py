@@ -27,14 +27,18 @@ from . import return_error
 
 
 router = APIRouter()
-DB_URL = os.getenv("DB_URL", "file:///tmp/awm.db")
 ALLOCATION_STORE = os.getenv("ALLOCATION_STORE", "db")
 
 if ALLOCATION_STORE == "db":
+    DB_URL = os.getenv("DB_URL", "file:///tmp/awm.db")
     from awm.utils.allocation_store_db import AllocationStoreDB
     allocation_store = AllocationStoreDB(DB_URL)
+elif ALLOCATION_STORE == "vault":
+    from awm.utils.allocation_store_vault import AllocationStoreVault
+    VAULT_URL = os.getenv("VAULT_URL", AllocationStoreVault.SECRETS_EGI)
+    allocation_store = AllocationStoreVault(VAULT_URL)
 else:
-    raise Exception("Currently no other allocation store is supported")
+    raise Exception(f"Allocation store '{ALLOCATION_STORE}' is not supported")
 
 
 # GET /allocations
@@ -165,6 +169,7 @@ def _check_allocation_in_use(allocation_id: str, user_info: dict, request: Reque
                        503: {"model": Error,
                              "description": "Try again later"}})
 def update_allocation(allocation_id,
+                      allocation: Allocation,
                       request: Request,
                       user_info=Depends(authenticate)):
     allocation_info = _get_allocation(allocation_id, user_info, request)
@@ -176,7 +181,7 @@ def update_allocation(allocation_id,
     if response:
         return response
 
-    data = allocation_info.allocation.model_dump_json(exclude_unset=True)
+    data = allocation.model_dump(exclude_unset=True, mode="json")
     try:
         allocation_store.replace_allocation(data, user_info, allocation_id)
     except Exception as ex:
@@ -220,7 +225,7 @@ def delete_allocation(allocation_id,
         return response
 
     try:
-        allocation_store.delete_allocation(allocation_id)
+        allocation_store.delete_allocation(allocation_id, user_info)
     except Exception as ex:
         return return_error(str(ex), 503)
 
@@ -251,7 +256,7 @@ def create_allocation(allocation: Allocation,
     """Record an environment of the user
     :rtype: AllocationId
     """
-    data = allocation.model_dump_json(exclude_unset=True, by_alias=True)
+    data = allocation.model_dump(exclude_unset=True, mode="json")
     try:
         allocation_id = allocation_store.replace_allocation(data, user_info)
     except Exception as ex:

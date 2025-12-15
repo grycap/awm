@@ -294,7 +294,7 @@ def test_create_allocation(check_oidc_mock, time_mock, uuid_mock, db_mock, clien
     assert response.json() == {'id': 'new-id', 'infoLink': 'http://testserver/allocation/new-id'}
     db_mock.execute.assert_called_with(
         "replace into allocations (id, data, owner, created) values (%s, %s, %s, %s)",
-        ('new-id', '{"kind":"KubernetesEnvironment","host":"http://k8s.io/"}', 'user123', 1000)
+        ('new-id', '{"kind": "KubernetesEnvironment", "host": "http://k8s.io/"}', 'user123', 1000)
     )
 
 
@@ -320,5 +320,5 @@ def test_update_allocation(check_oidc_mock, list_deployments_mock, db_mock, clie
                                'self': 'http://testserver/allocation/id1'}
     db_mock.execute.assert_called_with(
         "update allocations set data = %s where id = %s",
-        ('{"kind":"KubernetesEnvironment","host":"http://k8s.io/"}', 'id1')
+        ('{"kind": "KubernetesEnvironment", "host": "http://k8s.io/"}', 'id1')
     )

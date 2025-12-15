@@ -24,8 +24,8 @@ class AllocationStore():
     def get_allocation(self, allocation_id: str, user_info: dict) -> dict:
         raise NotImplementedError()
 
-    def delete_allocation(self, allocation_id: str):
+    def delete_allocation(self, allocation_id: str, user_info: dict = None):
         raise NotImplementedError()
 
-    def replace_allocation(self, data: dict, user_info: dict, allocation_id: str = None):
+    def replace_allocation(self, data: dict, user_info: dict, allocation_id: str = None) -> str:
         raise NotImplementedError()
