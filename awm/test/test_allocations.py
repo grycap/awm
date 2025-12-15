@@ -15,12 +15,15 @@
 
 import pytest
 import json
+import uuid
 from pydantic import HttpUrl
 from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock
 from awm.__main__ import create_app
 from awm.utils.node_registry import EOSCNode
 from awm.utils.db import DataBase
+from awm.utils.allocation_store_vault import AllocationStoreVault
+from awm.utils.allocation_store_db import AllocationStoreDB
 import awm
 
 
@@ -48,15 +51,23 @@ def check_oidc_mock():
 
 
 @pytest.fixture
-def db_mock():
+def db_mock(mocker):
     """Mock genérico para DataBase, retornando una instancia configurable."""
     instance = MagicMock()
     instance.connect.return_value = True
     instance.db_type = DataBase.SQLITE
-    instance.MONGO = DataBase.MONGO
-    instance.SQLITE = DataBase.SQLITE
-    awm.routers.allocations.allocation_store.db = instance
+    db = mocker.patch("awm.utils.allocation_store_db.DataBase", return_value=instance)
+    db.MONGO = DataBase.MONGO
+    db.SQLITE = DataBase.SQLITE
     return instance
+
+
+@pytest.fixture
+def vault_mock(mocker):
+    client = MagicMock()
+    client.is_authenticated.return_value = True
+    mocker.patch("hvac.Client", return_value=client)
+    return client
 
 
 @pytest.fixture
@@ -70,8 +81,19 @@ def requests_get_mock(mocker):
 
 
 @pytest.fixture
+def requests_post_mock(mocker):
+    response = MagicMock()
+    response.status_code = 200
+    response.json.return_value = {"auth": {"client_token": "ctoken", "entity_id": "eid"}}
+    return mocker.patch("requests.post", return_value=response)
+
+
+@pytest.fixture
 def list_deployments_mock(mocker):
-    return mocker.patch("awm.routers.deployments._list_deployments")
+    list_dep_mock = mocker.patch("awm.routers.deployments._list_deployments")
+    list_dep_mock.return_value.status_code = 200
+    list_dep_mock.return_value.body = b'{"from": 0, "limit": 100, "count": 0, "self": "", "elements": []}'
+    return list_dep_mock
 
 
 @pytest.fixture
@@ -84,25 +106,106 @@ def uuid_mock(mocker):
     return mocker.patch("uuid.uuid4", return_value="new-id")
 
 
-def _get_allocation_info():
-    return '{"kind": "KubernetesEnvironment", "host": "http://some.url/"}'
+@pytest.fixture
+def allocation_payload():
+    return {"kind": "KubernetesEnvironment", "host": "http://k8s.io"}
 
 
-def test_list_allocations(check_oidc_mock, client, db_mock, headers):
-    selects = [
-        [['id1', '{"kind": "KubernetesEnvironment","host": "http://k8s.io"}']],
-        [[1]],
-    ]
-    db_mock.select.side_effect = selects
-    response = client.get('/allocations/', headers=headers)
+def _allocation_data(aid="id1"):
+    return {'allocation': {'host': 'http://k8s.io/',
+                           'kind': 'KubernetesEnvironment'},
+            'id': aid,
+            'self': f'http://testserver/allocation/{aid}'}
+
+
+@pytest.fixture(params=["db", "mongo", "vault"])
+def backend_type(request):
+    return request.param
+
+
+ALLOC_1 = (
+    [{
+        "id": "id1",
+        "data": {"kind": "KubernetesEnvironment", "host": "http://k8s.io"},
+    }],
+    1,
+)
+
+ALLOC_2 = (
+    [],
+    1
+)
+
+ALLOC_3 = (
+    [{
+        "id": "id1",
+        "data": {"kind": "KubernetesEnvironment", "host": "http://k8s.io"},
+    }],
+    None,
+)
+
+
+@pytest.fixture
+def seed_allocations(backend_type, db_mock, vault_mock):
+    def _seed(allocations_list):
+        if backend_type in ["db", "mongo"]:
+            awm.routers.allocations.allocation_store = AllocationStoreDB(AllocationStoreDB.DEFAULT_URL)
+            awm.routers.allocations.allocation_store.db = db_mock
+            db_mock.db_type = DataBase.SQLITE
+            if backend_type == "mongo":
+                db_mock.db_type = DataBase.MONGO
+            selects = []
+            for allocations_elem in allocations_list:
+                allocations, total = allocations_elem
+                if backend_type == "mongo":
+                    rows = allocations
+                else:
+                    rows = [[a["id"], json.dumps(a["data"])] for a in allocations]
+                selects.append(rows)
+                if total is not None:
+                    selects.append([[total]])
+            if backend_type == "mongo":
+                db_mock.find.side_effect = selects
+            else:
+                db_mock.select.side_effect = selects
+        elif backend_type == "vault":
+            awm.routers.allocations.allocation_store = AllocationStoreVault(AllocationStoreVault.DEFAULT_URL)
+            res = []
+            for allocations_elem in allocations_list:
+                allocations, total = allocations_elem
+                elems = {a["id"]: json.dumps(a["data"]) for a in allocations}
+                if total and len(elems) < total:
+                    elems[str(uuid.uuid4())] = allocations[0]["data"]
+                res.append({"data": elems})
+            vault_mock.secrets.kv.v1.read_secret.side_effect = res
+
+    return _seed
+
+
+@pytest.mark.parametrize("backend_type", ["db", "mongo", "vault"], indirect=True)
+def test_list_allocations(
+    check_oidc_mock,
+    requests_post_mock,
+    client,
+    headers,
+    seed_allocations
+):
+    seed_allocations([ALLOC_1])
+
+    response = client.get("/allocations/", headers=headers)
+
     assert response.status_code == 200
+    assert response.json()["count"] == 1
     assert response.json() == {'count': 1,
-                               'elements': [{'allocation': {'host': 'http://k8s.io/',
-                                                            'kind': 'KubernetesEnvironment'},
-                                             'id': 'id1',
-                                             'self': 'http://testserver/allocation/id1'}],
+                               'elements': [_allocation_data()],
                                'from': 0,
                                'limit': 100}
+
+
+@pytest.mark.parametrize("backend_type", ["db"], indirect=True)
+def test_list_allocations_sql(check_oidc_mock, client, db_mock, headers, seed_allocations):
+    seed_allocations([ALLOC_1])
+    client.get('/allocations/', headers=headers)
 
     db_mock.select.assert_any_call(
         "SELECT id, data FROM allocations WHERE owner = %s order by created LIMIT %s OFFSET %s",
@@ -115,20 +218,10 @@ def test_list_allocations(check_oidc_mock, client, db_mock, headers):
     )
 
 
-def test_list_allocations_mongo(check_oidc_mock, client, db_mock, headers):
-    db_mock.db_type = DataBase.MONGO
-    db_mock.find.return_value = [{"data": {"kind": "KubernetesEnvironment",
-                                           "host": "http://k8s.io"},
-                                  "id": "id1"}]
-    response = client.get('/allocations/', headers=headers)
-    assert response.status_code == 200
-    assert response.json() == {'count': 1,
-                               'elements': [{'allocation': {'host': 'http://k8s.io/',
-                                                            'kind': 'KubernetesEnvironment'},
-                                             'id': 'id1',
-                                             'self': 'http://testserver/allocation/id1'}],
-                               'from': 0,
-                               'limit': 100}
+@pytest.mark.parametrize("backend_type", ["mongo"], indirect=True)
+def test_list_allocations_mongo(check_oidc_mock, client, db_mock, headers, seed_allocations):
+    seed_allocations([ALLOC_1])
+    client.get('/allocations/', headers=headers)
 
     db_mock.find.assert_called_with(
         "allocations",
@@ -138,20 +231,11 @@ def test_list_allocations_mongo(check_oidc_mock, client, db_mock, headers):
     )
 
 
+@pytest.mark.parametrize("backend_type", ["db"], indirect=True)
 def test_list_allocations_remote(
-    client, mocker, check_oidc_mock, db_mock, list_nodes_mock, requests_get_mock
+    client, check_oidc_mock, db_mock, list_nodes_mock, requests_get_mock, seed_allocations
 ):
-    selects = [
-        [['id1', '{"kind": "KubernetesEnvironment","host": "http://k8s.io"}']],
-        [[1]],
-        [],
-        [[1]],
-        [],
-        [[1]],
-        [],
-        [[1]]
-    ]
-    db_mock.select.side_effect = selects
+    seed_allocations([ALLOC_1, ALLOC_2, ALLOC_2, ALLOC_2])
 
     node1 = EOSCNode(awmAPI=HttpUrl("http://server1.com"), nodeId="n1")
     node2 = EOSCNode(awmAPI=HttpUrl("http://server2.com"), nodeId="n2")
@@ -159,33 +243,21 @@ def test_list_allocations_remote(
     resp1 = MagicMock()
     resp1.status_code = 200
     resp1.json.return_value = {'count': 1,
-                               'elements': [{'allocation': {'host': 'http://k8s.io/',
-                                                            'kind': 'KubernetesEnvironment'},
-                                             'id': 'id1',
-                                             'self': 'http://localhost/awm/allocation/id1'}],
+                               'elements': [_allocation_data()],
                                'from': 0,
                                'limit': 100}
     resp2 = MagicMock()
     resp2.status_code = 200
     resp2.json.return_value = {'count': 2,
-                               'elements': [{'allocation': {'host': 'http://k8s.io/',
-                                                            'kind': 'KubernetesEnvironment'},
-                                             'id': 'id1',
-                                             'self': 'http://localhost/awm/allocation/id1'},
-                                            {'allocation': {'host': 'http://k8s2.io/',
-                                                            'kind': 'KubernetesEnvironment'},
-                                             'id': 'id2',
-                                             'self': 'http://localhost/awm/allocation/id2'}],
+                               'elements': [_allocation_data(),
+                                            _allocation_data('id2')],
                                'from': 0,
                                'limit': 100}
 
     resp3 = MagicMock()
     resp3.status_code = 200
     resp3.json.return_value = {'count': 2,
-                               'elements': [{'allocation': {'host': 'http://k8s.io/',
-                                                            'kind': 'KubernetesEnvironment'},
-                                             'id': 'id1',
-                                             'self': 'http://localhost/awm/allocation/id1'}],
+                               'elements': [_allocation_data()],
                                'from': 0,
                                'limit': 100}
     requests_get_mock.side_effect = [resp1, resp2, resp1, resp1, resp1, resp2, resp1, resp3]
@@ -226,33 +298,19 @@ def test_list_allocations_remote(
     assert str(response.json()["prevPage"]) == "http://testserver/allocations?allNodes=true&from=0&limit=2"
 
 
-def test_get_allocation(check_oidc_mock, db_mock, client, headers):
-    selects = [
-        [["1", _get_allocation_info()]],
-        [[1]]
-    ]
-    db_mock.select.side_effect = selects
-
-    response = client.get('/allocation/1', headers=headers)
+def test_get_allocation(check_oidc_mock, db_mock, client, headers, requests_post_mock, seed_allocations):
+    seed_allocations([ALLOC_1])
+    response = client.get('/allocation/id1', headers=headers)
     assert response.status_code == 200
 
 
-def test_delete_allocation(check_oidc_mock, list_deployments_mock, db_mock, client, headers):
+def test_delete_allocation(check_oidc_mock, list_deployments_mock, client, headers,
+                           requests_post_mock, seed_allocations):
+    seed_allocations([ALLOC_1, ALLOC_1])
 
-    selects = [
-        [['id1', '{"kind": "KubernetesEnvironment","host": "http://k8s.io"}']],
-        [['id1', '{"kind": "KubernetesEnvironment","host": "http://k8s.io"}']]
-    ]
-    db_mock.select.side_effect = selects
-
-    list_deployments_mock.return_value.status_code = 200
-    list_deployments_mock.return_value.body = b'{"from": 0, "limit": 100, "count": 0, "self": "", "elements": []}'
-
-    headers = {"Authorization": "Bearer you-very-secret-token"}
     response = client.delete('/allocation/id1', headers=headers)
     assert response.status_code == 200
     assert response.json() == {"message": "Deleted"}
-    db_mock.execute.assert_called_with("DELETE FROM allocations WHERE id = %s", ('id1',))
 
     list_deployments_mock.return_value.status_code = 200
     list_deployments_mock.return_value.body = json.dumps({
@@ -280,45 +338,74 @@ def test_delete_allocation(check_oidc_mock, list_deployments_mock, db_mock, clie
     assert response.json() == {'description': 'Allocation in use', 'id': '409'}
 
 
-def test_create_allocation(check_oidc_mock, time_mock, uuid_mock, db_mock, client, headers):
-    headers = {
-        "Authorization": "Bearer you-very-secret-token",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "kind": "KubernetesEnvironment",
-        "host": "http://k8s.io"
-    }
-    response = client.post('/allocations', headers=headers, json=payload)
+@pytest.mark.parametrize("backend_type", ["db"], indirect=True)
+def test_delete_allocation_sql(check_oidc_mock, list_deployments_mock, client, headers, db_mock, seed_allocations):
+    seed_allocations([ALLOC_1, ALLOC_1])
+
+    client.delete('/allocation/id1', headers=headers)
+    db_mock.execute.assert_called_with("DELETE FROM allocations WHERE id = %s", ('id1',))
+
+
+def test_create_allocation(check_oidc_mock, uuid_mock, client, headers, requests_post_mock,
+                           seed_allocations, allocation_payload):
+    seed_allocations([])
+    response = client.post('/allocations', headers=headers, json=allocation_payload)
     assert response.status_code == 201
     assert response.json() == {'id': 'new-id', 'infoLink': 'http://testserver/allocation/new-id'}
+
+
+@pytest.mark.parametrize("backend_type", ["db"], indirect=True)
+def test_create_allocation_sql(check_oidc_mock, time_mock, uuid_mock, db_mock, client,
+                               headers, seed_allocations, allocation_payload):
+    seed_allocations([])
+    client.post('/allocations', headers=headers, json=allocation_payload)
     db_mock.execute.assert_called_with(
         "replace into allocations (id, data, owner, created) values (%s, %s, %s, %s)",
-        ('new-id', '{"kind":"KubernetesEnvironment","host":"http://k8s.io/"}', 'user123', 1000)
+        ('new-id', '{"kind": "KubernetesEnvironment", "host": "http://k8s.io/"}', 'user123', 1000)
     )
 
 
-def test_update_allocation(check_oidc_mock, list_deployments_mock, db_mock, client, headers):
-    selects = [
-        [['id1', '{"kind": "KubernetesEnvironment","host": "http://k8s.io"}']],
-        [['id1', '{"kind": "KubernetesEnvironment","host": "http://k8s.io"}']]
-    ]
-    db_mock.select.side_effect = selects
+@pytest.mark.parametrize("backend_type", ["mongo"], indirect=True)
+def test_create_allocation_mongo(check_oidc_mock, time_mock, uuid_mock, db_mock, client,
+                                 headers, seed_allocations, allocation_payload):
+    seed_allocations([])
+    client.post('/allocations', headers=headers, json=allocation_payload)
+    db_mock.replace.assert_called_with(
+        "allocations", {"id": "new-id"}, {"id": "new-id", "data": {"kind": "KubernetesEnvironment",
+                                                                   "host": "http://k8s.io/"},
+                                          "owner": "user123", "created": 1000}
+    )
 
-    list_deployments_mock.return_value.status_code = 200
-    list_deployments_mock.return_value.body = b'{"from": 0, "limit": 100, "count": 0, "self": "", "elements": []}'
 
-    payload = {
-        "kind": "KubernetesEnvironment",
-        "host": "http://k8s.io"
-    }
-    response = client.put('/allocation/id1', headers=headers, json=payload)
+@pytest.mark.parametrize("backend_type", ["vault"], indirect=True)
+def test_create_allocation_vault(check_oidc_mock, time_mock, uuid_mock, vault_mock, client, headers,
+                                 requests_post_mock, seed_allocations, allocation_payload):
+    seed_allocations([])
+    client.post('/allocations', headers=headers, json=allocation_payload)
+    vault_mock.secrets.kv.v1.create_or_update_secret.assert_called_with(
+        'users/user123/allocations',
+        {'new-id': '{"kind": "KubernetesEnvironment", "host": "http://k8s.io/"}'},
+        mount_point='/secrets'
+    )
+
+
+def test_update_allocation(check_oidc_mock, list_deployments_mock, db_mock, client, headers,
+                           requests_post_mock, seed_allocations, allocation_payload):
+    seed_allocations([ALLOC_3, ALLOC_3, ALLOC_3])
+
+    response = client.put('/allocation/id1', headers=headers, json=allocation_payload)
     assert response.status_code == 200
-    assert response.json() == {'id': 'id1',
-                               'allocation': {'host': 'http://k8s.io/',
-                                              'kind': 'KubernetesEnvironment'},
-                               'self': 'http://testserver/allocation/id1'}
+    assert response.json() == _allocation_data()
+
+
+@pytest.mark.parametrize("backend_type", ["db"], indirect=True)
+def test_update_allocation_sql(check_oidc_mock, list_deployments_mock, db_mock, client, headers,
+                               seed_allocations, allocation_payload):
+    seed_allocations([ALLOC_3, ALLOC_3])
+
+    client.put('/allocation/id1', headers=headers, json=allocation_payload)
+
     db_mock.execute.assert_called_with(
         "update allocations set data = %s where id = %s",
-        ('{"kind":"KubernetesEnvironment","host":"http://k8s.io/"}', 'id1')
+        ('{"kind": "KubernetesEnvironment", "host": "http://k8s.io/"}', 'id1')
     )

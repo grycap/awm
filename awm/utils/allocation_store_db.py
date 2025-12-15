@@ -29,6 +29,8 @@ class DBConnectionException(Exception):
 
 class AllocationStoreDB(AllocationStore):
 
+    DEFAULT_URL = "file:///tmp/awm.db"
+
     def __init__(self, db_url):
         self.db = DataBase(db_url)
         if self.db.connect():
@@ -95,7 +97,7 @@ class AllocationStoreDB(AllocationStore):
 
         raise DBConnectionException()
 
-    def delete_allocation(self, allocation_id: str):
+    def delete_allocation(self, allocation_id: str, user_info: dict = None):
         if self.db.connect():
             if self.db.db_type == DataBase.MONGO:
                 self.db.delete("allocations", {"id": allocation_id})
@@ -105,7 +107,7 @@ class AllocationStoreDB(AllocationStore):
         else:
             raise DBConnectionException()
 
-    def replace_allocation(self, data: dict, user_info: dict, allocation_id: str = None):
+    def replace_allocation(self, data: dict, user_info: dict, allocation_id: str = None) -> str:
         if self.db.connect():
             if self.db.db_type == DataBase.MONGO:
                 if allocation_id is None:  # new allocation
@@ -121,10 +123,10 @@ class AllocationStoreDB(AllocationStore):
                 if allocation_id is None:  # new allocation
                     allocation_id = str(uuid.uuid4())
                     sql = "replace into allocations (id, data, owner, created) values (%s, %s, %s, %s)"
-                    values = (allocation_id, data, user_info['sub'], time.time())
+                    values = (allocation_id, json.dumps(data), user_info['sub'], time.time())
                 else:  # update existing allocation
                     sql = "update allocations set data = %s where id = %s"
-                    values = (data, allocation_id)
+                    values = (json.dumps(data), allocation_id)
                 self.db.execute(sql, values)
             self.db.close()
             return allocation_id

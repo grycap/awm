@@ -5,3 +5,4 @@ python-dotenv==1.2.1
 im-client >= 1.8.2
 uvicorn[standard]==0.38.0
 requests-cache==1.2.1
+hvac==2.4.0
