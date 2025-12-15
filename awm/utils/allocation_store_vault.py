@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from hvac import Client
+import hvac
 import json
 import uuid
 import requests
@@ -24,6 +24,7 @@ from awm.utils.allocation_store import AllocationStore
 class AllocationStoreVault(AllocationStore):
 
     SECRETS_EGI = "https://secrets.egi.eu"
+    DEFAULT_URL = SECRETS_EGI
 
     def __init__(self, vault_url, mount_point=None, path=None, role=None, kv_ver=1, ssl_verify=False):
         self.url = vault_url
@@ -60,7 +61,7 @@ class AllocationStoreVault(AllocationStore):
         vault_auth_token = deserialized_response["auth"]["client_token"]
         vault_entity_id = deserialized_response["auth"]["entity_id"]
 
-        client = Client(url=self.url, token=vault_auth_token, verify=self.ssl_verify)
+        client = hvac.Client(url=self.url, token=vault_auth_token, verify=self.ssl_verify)
         if not client.is_authenticated():
             raise Exception(f"Error authenticating against Vault with token: {vault_auth_token}")
 

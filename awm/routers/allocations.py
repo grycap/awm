@@ -31,11 +31,11 @@ ALLOCATION_STORE = os.getenv("ALLOCATION_STORE", "db")
 
 if ALLOCATION_STORE == "db":
     from awm.utils.allocation_store_db import AllocationStoreDB
-    DB_URL = os.getenv("DB_URL", AllocationStoreDB.DEFAULT_DB_URL)
+    DB_URL = os.getenv("DB_URL", AllocationStoreDB.DEFAULT_URL)
     allocation_store = AllocationStoreDB(DB_URL)
 elif ALLOCATION_STORE == "vault":
     from awm.utils.allocation_store_vault import AllocationStoreVault
-    VAULT_URL = os.getenv("VAULT_URL", AllocationStoreVault.SECRETS_EGI)
+    VAULT_URL = os.getenv("VAULT_URL", AllocationStoreVault.DEFAULT_URL)
     allocation_store = AllocationStoreVault(VAULT_URL)
 else:
     raise Exception(f"Allocation store '{ALLOCATION_STORE}' is not supported")
