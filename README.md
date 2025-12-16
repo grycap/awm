@@ -16,6 +16,9 @@ Set this environment variables to configure the AWM service:
 LOG_LEVEL=info
 DB_URL=file:///tmp/awm.db
 IM_URL=http://localhost:8800
+ALLOCATION_STORE="db" # or vault
+VAULT_URL=https://secrets.egi.eu
+ENCRYPT_KEY=3JSvUdOsAlvSNVYvBwHWE-iKdWkhq4C_LmjRcpuycT0=
 ```
 
 Or you can set an `.env` file as the `.env.example` provided.

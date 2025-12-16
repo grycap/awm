@@ -18,6 +18,7 @@ import json
 import uuid
 import requests
 from typing import List
+from cryptography.fernet import Fernet
 from awm.utils.allocation_store import AllocationStore
 
 
@@ -25,8 +26,9 @@ class AllocationStoreVault(AllocationStore):
 
     SECRETS_EGI = "https://secrets.egi.eu"
     DEFAULT_URL = SECRETS_EGI
+    DEFAULT_KEY = "3JSvUdOsAlvSNVYvBwHWE-iKdWkhq4C_LmjRcpuycT0="
 
-    def __init__(self, vault_url, mount_point=None, path=None, role=None, kv_ver=1, ssl_verify=False):
+    def __init__(self, vault_url, mount_point=None, path=None, role=None, kv_ver=1, ssl_verify=False, key=None):
         self.url = vault_url
         self.ssl_verify = ssl_verify
         if kv_ver not in [1, 2]:
@@ -37,10 +39,25 @@ class AllocationStoreVault(AllocationStore):
             self.mount_point = "/secrets"
             self.path = "users/{sub}/allocations"
         else:
-            self.mount_point = "credentials/"
+            self.mount_point = "allocations/"
             if mount_point:
                 self.mount_point = mount_point
             self.path = path
+        self.key = None
+        if key:
+            self.key = Fernet(key)
+
+    def _encrypt(self, message):
+        if self.key:
+            return self.key.encrypt(message.encode()).decode()
+        else:
+            return message
+
+    def _decrypt(self, message):
+        if self.key:
+            return self.key.decrypt(message).decode()
+        else:
+            return message
 
     def _login(self, user_info):
         login_url = self.url + '/v1/auth/jwt/login'
@@ -81,19 +98,19 @@ class AllocationStoreVault(AllocationStore):
         client, path = self._login(user_info)
 
         try:
-            data = []
             creds = client.read_secret(path=path, mount_point=self.mount_point)
-
-            for count, elem in enumerate(creds["data"].items()):
-                if from_ > count:
-                    continue
-                allocation = {'id': elem[0], 'data': json.loads(elem[1])}
-                data.append(allocation)
-                if len(data) >= limit:
-                    break
-            count = len(creds["data"].values())
         except Exception:
-            return 0, []
+            creds = {}
+
+        data = []
+        for count, elem in enumerate(creds["data"].items()):
+            if from_ > count:
+                continue
+            allocation = {'id': elem[0], 'data': json.loads(self._decrypt(elem[1]))}
+            data.append(allocation)
+            if len(data) >= limit:
+                break
+        count = len(creds["data"].values())
 
         return count, data
 
@@ -101,7 +118,7 @@ class AllocationStoreVault(AllocationStore):
         client, path = self._login(user_info)
         creds = client.read_secret(path=path, mount_point=self.mount_point)
         if allocation_id in creds["data"]:
-            return json.loads(creds["data"][allocation_id])
+            return json.loads(self._decrypt(creds["data"][allocation_id]))
         else:
             return None
 
@@ -138,7 +155,7 @@ class AllocationStoreVault(AllocationStore):
         if creds:
             old_data = creds["data"]
             if allocation_id in creds["data"]:
-                allocation_data = json.loads(creds["data"][allocation_id])
+                allocation_data = json.loads(self._decrypt(creds["data"][allocation_id]))
                 allocation_data.update(data)
                 creds["data"][allocation_id] = allocation_data
             else:
@@ -146,7 +163,7 @@ class AllocationStoreVault(AllocationStore):
         else:
             old_data = {allocation_id: data}
 
-        old_data[allocation_id] = json.dumps(old_data[allocation_id])
+        old_data[allocation_id] = self._encrypt(json.dumps(old_data[allocation_id]))
         response = client.create_or_update_secret(path,
                                                   old_data,
                                                   mount_point=self.mount_point)
