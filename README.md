@@ -2,6 +2,7 @@
 
 [![Test ADIM](https://github.com/grycap/adim/actions/workflows/main.yaml/badge.svg)](https://github.com/grycap/adim/actions/workflows/main.yaml)
 [![SQAaaS badge shields.io](https://github.com/EOSC-synergy/adim.assess.sqaaas/raw/v0.6.0/.badge/status_shields.svg)](https://sqaaas.eosc-synergy.eu/#/full-assessment/report/https://raw.githubusercontent.com/eosc-synergy/adim.assess.sqaaas/v0.6.0/.report/assessment_output.json)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20596323.svg)](https://doi.org/10.5281/zenodo.20596323)
 
 ## Overview
 
